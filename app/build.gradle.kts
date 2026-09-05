@@ -13,6 +13,9 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+
+        buildConfigField("String", "SUPABASE_URL", "\"https://dqjuifzsowwrrfppczsj.supabase.co\"")
+        buildConfigField("String", "SUPABASE_KEY", "\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxanVpZnpzb3d3cnJmcHBjemNqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4NTE3OTMsImV4cCI6MjEwMTQyNzc5M30.GqhJMgsqchqTE6-XG00efPO9GyKA0ov4BFx2zXsbrUQ\"")
     }
 
     buildTypes {
@@ -28,7 +31,7 @@ android {
     buildFeatures {
       compose = true
       aidl = false
-      buildConfig = false
+      buildConfig = true
       shaders = false
     }
 
@@ -81,4 +84,26 @@ dependencies {
   implementation(libs.androidx.navigation3.ui)
   implementation(libs.androidx.navigation3.runtime)
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+
+  // Kotlinx Serialization
+  implementation(libs.kotlinx.serialization.json)
+
+  // Supabase
+  val supabaseBom = platform(libs.supabase.bom)
+  implementation(supabaseBom)
+  implementation(libs.supabase.postgrest)
+  implementation(libs.supabase.auth)
+  implementation(libs.supabase.realtime)
+  implementation(libs.supabase.storage)
+
+  // Ktor Client
+  implementation(libs.ktor.client.okhttp)
+  implementation(libs.ktor.client.core)
+
+  // Coil
+  implementation(libs.coil.compose)
+
+  // Koin Dependency Injection
+  implementation(libs.koin.android)
+  implementation(libs.koin.androidx.compose)
 }
