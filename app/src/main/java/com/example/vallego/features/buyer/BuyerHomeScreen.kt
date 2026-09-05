@@ -17,10 +17,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Schedule
 import com.example.vallego.domain.model.Product
 import com.example.vallego.domain.model.UserProfile
 import com.example.vallego.domain.repository.CartRepository
 import com.example.vallego.features.cart.CartScreen
+import com.example.vallego.features.tracking.OrderTrackingScreen
 import org.koin.compose.koinInject
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -32,12 +34,26 @@ fun BuyerHomeScreen(
     cartRepository: CartRepository = koinInject()
 ) {
     var showCart by remember { mutableStateOf(false) }
+    var showTracking by remember { mutableStateOf(false) }
     val cartCalculation by cartRepository.cartCalculation.collectAsState()
+
+    if (showTracking) {
+        OrderTrackingScreen(
+            buyerProfile = profile,
+            onNavigateBack = { showTracking = false },
+            modifier = modifier
+        )
+        return
+    }
 
     if (showCart) {
         CartScreen(
             buyerProfile = profile,
             onNavigateBack = { showCart = false },
+            onNavigateToTracking = {
+                showCart = false
+                showTracking = true
+            },
             modifier = modifier
         )
         return
@@ -132,6 +148,13 @@ fun BuyerHomeScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showTracking = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = "Mis Pedidos",
+                            tint = Color(0xFF003366)
+                        )
+                    }
                     IconButton(onClick = { showCart = true }) {
                         BadgedBox(
                             badge = {

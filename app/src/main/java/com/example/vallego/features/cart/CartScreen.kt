@@ -34,6 +34,7 @@ import org.koin.androidx.compose.koinViewModel
 fun CartScreen(
     buyerProfile: UserProfile,
     onNavigateBack: () -> Unit,
+    onNavigateToTracking: () -> Unit = onNavigateBack,
     modifier: Modifier = Modifier,
     viewModel: CartViewModel = koinViewModel()
 ) {
@@ -135,11 +136,21 @@ fun CartScreen(
                 Button(
                     onClick = {
                         viewModel.clearPlacedOrder()
-                        onNavigateBack()
+                        onNavigateToTracking()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366))
                 ) {
-                    Text("Volver al Campus")
+                    Text("Ver Seguimiento")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.clearPlacedOrder()
+                        onNavigateBack()
+                    }
+                ) {
+                    Text("Seguir Comprando")
                 }
             }
         )

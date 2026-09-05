@@ -31,7 +31,8 @@ val repositoryModule = module {
 
     single<OrderRepository> {
         OrderRepositoryImpl(
-            postgrest = get()
+            postgrest = get(),
+            recalculateOrderUseCase = get()
         )
     }
 }
