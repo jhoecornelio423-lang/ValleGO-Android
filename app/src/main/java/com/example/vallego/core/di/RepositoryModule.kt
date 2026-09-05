@@ -1,8 +1,10 @@
 package com.example.vallego.core.di
 
+import com.example.vallego.data.repository.AdminRepositoryImpl
 import com.example.vallego.data.repository.AuthRepositoryImpl
 import com.example.vallego.data.repository.CartRepositoryImpl
 import com.example.vallego.data.repository.OrderRepositoryImpl
+import com.example.vallego.domain.repository.AdminRepository
 import com.example.vallego.domain.repository.AuthRepository
 import com.example.vallego.domain.repository.CartRepository
 import com.example.vallego.domain.repository.OrderRepository
@@ -33,6 +35,13 @@ val repositoryModule = module {
         OrderRepositoryImpl(
             postgrest = get(),
             recalculateOrderUseCase = get()
+        )
+    }
+
+    single<AdminRepository> {
+        AdminRepositoryImpl(
+            postgrest = get(),
+            orderRepository = get()
         )
     }
 }
