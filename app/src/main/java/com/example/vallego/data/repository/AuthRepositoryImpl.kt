@@ -14,6 +14,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+
 class AuthRepositoryImpl(
     private val auth: Auth,
     private val postgrest: Postgrest
@@ -38,7 +43,19 @@ class AuthRepositoryImpl(
                             try {
                                 _currentProfile.value = fetchProfile(user.id)
                             } catch (_: Exception) {
-                                // Profile might still be initializing or device offline
+                                val meta = user.userMetadata
+                                val metaName = meta?.get("full_name")?.jsonPrimitive?.contentOrNull ?: "Estudiante UCV"
+                                val metaRoleStr = meta?.get("role")?.jsonPrimitive?.contentOrNull ?: "comprador"
+                                val role = when (metaRoleStr.lowercase()) {
+                                    "admin" -> UserRole.ADMIN
+                                    "emprendedor" -> UserRole.EMPRENDEDOR
+                                    else -> UserRole.COMPRADOR
+                                }
+                                _currentProfile.value = UserProfile(
+                                    id = user.id,
+                                    fullName = metaName,
+                                    role = role
+                                )
                             }
                         }
                     }
@@ -70,9 +87,25 @@ class AuthRepositoryImpl(
                 this.email = trimmedEmail
                 this.password = password
             }
-            val userId = auth.currentUserOrNull()?.id
+            val user = auth.currentUserOrNull()
                 ?: throw IllegalStateException("Sesión no iniciada correctamente")
-            val profile = fetchProfile(userId)
+            val profile = try {
+                fetchProfile(user.id)
+            } catch (_: Exception) {
+                val meta = user.userMetadata
+                val metaName = meta?.get("full_name")?.jsonPrimitive?.contentOrNull ?: "Estudiante UCV"
+                val metaRoleStr = meta?.get("role")?.jsonPrimitive?.contentOrNull ?: "comprador"
+                val role = when (metaRoleStr.lowercase()) {
+                    "admin" -> UserRole.ADMIN
+                    "emprendedor" -> UserRole.EMPRENDEDOR
+                    else -> UserRole.COMPRADOR
+                }
+                UserProfile(
+                    id = user.id,
+                    fullName = metaName,
+                    role = role
+                )
+            }
             _currentProfile.value = profile
             _isAuthenticated.value = true
             Result.success(profile)
@@ -99,22 +132,30 @@ class AuthRepositoryImpl(
             auth.signUpWith(Email) {
                 this.email = trimmedEmail
                 this.password = password
+                this.data = buildJsonObject {
+                    put("full_name", fullName.trim())
+                    put("phone", phone.trim())
+                    put("role", role.name.lowercase())
+                    put("campus", "Los Olivos")
+                }
             }
             val userId = auth.currentUserOrNull()?.id
                 ?: throw IllegalStateException("No se pudo obtener el ID del usuario tras registrarse")
 
-            val newProfile = UserProfile(
-                id = userId,
-                fullName = fullName.trim(),
-                phone = phone.trim(),
-                role = role
-            )
+            val profile = try {
+                fetchProfile(userId)
+            } catch (_: Exception) {
+                UserProfile(
+                    id = userId,
+                    fullName = fullName.trim(),
+                    phone = phone.trim(),
+                    role = role
+                )
+            }
 
-            postgrest.from("profiles").upsert(newProfile)
-
-            _currentProfile.value = newProfile
+            _currentProfile.value = profile
             _isAuthenticated.value = true
-            Result.success(newProfile)
+            Result.success(profile)
         } catch (e: Exception) {
             Result.failure(e)
         }
