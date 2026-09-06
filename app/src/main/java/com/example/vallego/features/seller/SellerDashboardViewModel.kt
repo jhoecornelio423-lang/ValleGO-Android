@@ -212,20 +212,30 @@ class SellerDashboardViewModel(
 
     fun acceptSubOrder(subOrderId: String) {
         viewModelScope.launch {
-            orderRepository.updateSubOrderStatus(subOrderId, SubOrderStatus.ACEPTADO)
-            loadProducts()
+            val result = orderRepository.updateSubOrderStatus(subOrderId, SubOrderStatus.ACEPTADO)
+            if (result.isFailure) {
+                _uiState.update { it.copy(errorMessage = result.exceptionOrNull()?.message ?: "Error al aceptar el pedido.") }
+            } else {
+                loadProducts()
+            }
         }
     }
 
     fun startPreparation(subOrderId: String) {
         viewModelScope.launch {
-            orderRepository.updateSubOrderStatus(subOrderId, SubOrderStatus.EN_PREPARACION)
+            val result = orderRepository.updateSubOrderStatus(subOrderId, SubOrderStatus.EN_PREPARACION)
+            if (result.isFailure) {
+                _uiState.update { it.copy(errorMessage = result.exceptionOrNull()?.message ?: "Error al iniciar preparación.") }
+            }
         }
     }
 
     fun markReady(subOrderId: String) {
         viewModelScope.launch {
-            orderRepository.updateSubOrderStatus(subOrderId, SubOrderStatus.LISTO)
+            val result = orderRepository.updateSubOrderStatus(subOrderId, SubOrderStatus.LISTO)
+            if (result.isFailure) {
+                _uiState.update { it.copy(errorMessage = result.exceptionOrNull()?.message ?: "Error al marcar pedido listo.") }
+            }
         }
     }
 
@@ -239,9 +249,13 @@ class SellerDashboardViewModel(
 
     fun confirmRejection(subOrderId: String, reason: String) {
         viewModelScope.launch {
-            orderRepository.updateSubOrderStatus(subOrderId, SubOrderStatus.RECHAZADO, reason)
-            dismissRejectionDialog()
-            loadProducts()
+            val result = orderRepository.updateSubOrderStatus(subOrderId, SubOrderStatus.RECHAZADO, reason)
+            if (result.isFailure) {
+                _uiState.update { it.copy(errorMessage = result.exceptionOrNull()?.message ?: "Error al rechazar el pedido.") }
+            } else {
+                dismissRejectionDialog()
+                loadProducts()
+            }
         }
     }
 
@@ -255,8 +269,12 @@ class SellerDashboardViewModel(
 
     fun confirmDeliveryAndPayment(subOrderId: String) {
         viewModelScope.launch {
-            orderRepository.updateSubOrderStatus(subOrderId, SubOrderStatus.COMPLETADO)
-            dismissDeliveryDialog()
+            val result = orderRepository.updateSubOrderStatus(subOrderId, SubOrderStatus.COMPLETADO)
+            if (result.isFailure) {
+                _uiState.update { it.copy(errorMessage = result.exceptionOrNull()?.message ?: "Error al confirmar entrega y pago.") }
+            } else {
+                dismissDeliveryDialog()
+            }
         }
     }
 

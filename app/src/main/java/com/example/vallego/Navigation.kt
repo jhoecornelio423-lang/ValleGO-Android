@@ -23,7 +23,9 @@ import org.koin.compose.koinInject
 
 @Composable
 fun MainNavigation(
-    authRepository: AuthRepository = koinInject()
+    authRepository: AuthRepository = koinInject(),
+    cartRepository: com.example.vallego.domain.repository.CartRepository = koinInject(),
+    orderRepository: com.example.vallego.domain.repository.OrderRepository = koinInject()
 ) {
     val isAuthenticated by authRepository.isAuthenticated.collectAsState()
     val currentProfile by authRepository.currentProfile.collectAsState()
@@ -38,6 +40,8 @@ fun MainNavigation(
         val profile = currentProfile!!
         val onSignOut: () -> Unit = {
             scope.launch {
+                cartRepository.clearCart()
+                orderRepository.clearCache()
                 authRepository.signOut()
             }
         }

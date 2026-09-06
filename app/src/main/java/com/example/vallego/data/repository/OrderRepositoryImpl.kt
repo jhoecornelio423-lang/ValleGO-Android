@@ -1,11 +1,10 @@
 package com.example.vallego.data.repository
 
 import com.example.vallego.domain.model.Order
-import com.example.vallego.domain.model.Product
-import com.example.vallego.domain.model.SubOrderItem
 import com.example.vallego.domain.model.OrderStatus
 import com.example.vallego.domain.model.PaymentMethod
 import com.example.vallego.domain.model.SubOrder
+import com.example.vallego.domain.model.SubOrderItem
 import com.example.vallego.domain.model.SubOrderStatus
 import com.example.vallego.domain.repository.OrderRepository
 import com.example.vallego.domain.usecase.RecalculateOrderUseCase
@@ -17,7 +16,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -25,14 +23,20 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 @Serializable
 data class RemoteOrderDto(
     val id: String,
     @SerialName("buyer_id") val buyerId: String,
-    @SerialName("seller_id") val sellerId: String,
+    @SerialName("seller_id") val sellerId: String? = null,
     @SerialName("total_price") val totalPrice: Double,
     @SerialName("delivery_place") val deliveryPlace: String? = null,
+    @SerialName("meeting_point_id") val meetingPointId: String? = null,
+    @SerialName("meeting_point_name") val meetingPointName: String? = null,
+    @SerialName("scheduled_time") val scheduledTime: String? = null,
+    val notes: String? = null,
+    @SerialName("payment_method") val paymentMethod: String? = null,
     val status: String = "pending",
     @SerialName("order_code") val orderCode: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
@@ -40,21 +44,29 @@ data class RemoteOrderDto(
 )
 
 @Serializable
-data class RemoteOrderInsertDto(
+data class RemoteSubOrderDto(
     val id: String,
-    @SerialName("buyer_id") val buyerId: String,
+    @SerialName("order_id") val orderId: String,
     @SerialName("seller_id") val sellerId: String,
-    @SerialName("total_price") val totalPrice: Double,
-    @SerialName("delivery_place") val deliveryPlace: String? = null,
+    @SerialName("subtotal_amount") val subtotalAmount: Double,
     val status: String = "pending",
-    @SerialName("order_code") val orderCode: String? = null
+    @SerialName("rejection_reason") val rejectionReason: String? = null,
+    @SerialName("payment_method") val paymentMethod: String? = null,
+    @SerialName("is_payment_confirmed") val isPaymentConfirmed: Boolean = false,
+    @SerialName("is_delivery_confirmed") val isDeliveryConfirmed: Boolean = false,
+    @SerialName("stock_reserved") val stockReserved: Boolean = true,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null
 )
 
 @Serializable
-data class ProductStockDto(
+data class RemoteOrderItemDto(
     val id: String,
-    val stock: Int,
-    @SerialName("is_active") val isActive: Boolean = true
+    @SerialName("order_id") val orderId: String,
+    @SerialName("sub_order_id") val subOrderId: String? = null,
+    @SerialName("product_id") val productId: String,
+    val quantity: Int,
+    @SerialName("price_at_sale") val priceAtSale: Double
 )
 
 @Serializable
@@ -67,23 +79,31 @@ data class ProductBasicDto(
 )
 
 @Serializable
-data class RemoteOrderItemDto(
+data class ProfileBasicDto(
     val id: String,
-    @SerialName("order_id") val orderId: String,
-    @SerialName("product_id") val productId: String,
-    val quantity: Int,
-    @SerialName("price_at_sale") val priceAtSale: Double
+    @SerialName("full_name") val fullName: String? = null,
+    val phone: String? = null,
+    @SerialName("business_description") val businessDescription: String? = null
 )
 
 @Serializable
-data class OrderStockUpdateDto(
-    @SerialName("stock") val stock: Int,
-    @SerialName("is_active") val isActive: Boolean
+data class CheckoutResponseDto(
+    val success: Boolean = false,
+    @SerialName("order_id") val orderId: String? = null,
+    @SerialName("order_code") val orderCode: String? = null,
+    @SerialName("total_amount") val totalAmount: Double? = null,
+    val status: String? = null,
+    @SerialName("is_duplicate") val isDuplicate: Boolean? = null,
+    val message: String? = null
 )
 
 @Serializable
-data class OrderStatusUpdateDto(
-    @SerialName("status") val status: String
+data class UpdateSuborderStatusResponseDto(
+    val success: Boolean = false,
+    @SerialName("sub_order_id") val subOrderId: String? = null,
+    val status: String? = null,
+    @SerialName("stock_released") val stockReleased: Boolean? = null,
+    @SerialName("rejection_reason") val rejectionReason: String? = null
 )
 
 class OrderRepositoryImpl(
@@ -94,114 +114,111 @@ class OrderRepositoryImpl(
     private val _ordersFlow = MutableStateFlow<List<Order>>(emptyList())
     val ordersFlow = _ordersFlow.asStateFlow()
 
+    private val productNameCache = ConcurrentHashMap<String, String>()
+    private val profileNameCache = ConcurrentHashMap<String, String>()
+
+    override fun clearCache() {
+        _ordersFlow.value = emptyList()
+    }
+
     override suspend fun placeOrder(order: Order): Result<Order> = withContext(Dispatchers.IO) {
         try {
-            // 1. Guardar en memoria local inmediata
-            val currentList = _ordersFlow.value.toMutableList()
-            currentList.add(0, order)
-            _ordersFlow.value = currentList
-
-            // 2. Persistir en la nube de Supabase (una única inserción limpia y determinista)
-            // IMPORTANTE: El stock NO se descuenta aquí en estado pendiente.
-            // Se descontará únicamente cuando el emprendedor acepte formalmente el pedido.
-            if (postgrest != null) {
-                for (subOrder in order.subOrders) {
-                    val remoteOrderId = if (isValidUUID(subOrder.id)) subOrder.id else UUID.randomUUID().toString()
-                    val remoteOrder = RemoteOrderInsertDto(
-                        id = remoteOrderId,
-                        buyerId = order.buyerId,
-                        sellerId = subOrder.sellerId,
-                        totalPrice = subOrder.subtotalAmount,
-                        deliveryPlace = "${order.meetingPointName} (${order.scheduledTime})",
-                        status = "pending",
-                        orderCode = order.id.takeLast(6).uppercase()
-                    )
-
-                    try {
-                        postgrest.from("orders").insert(remoteOrder)
-
-                        // Insertar ítems del subpedido en order_items
-                        for (item in subOrder.items) {
-                            val itemId = UUID.randomUUID().toString()
-                            val prodId = if (isValidUUID(item.productId)) item.productId else UUID.randomUUID().toString()
-                            val remoteItem = RemoteOrderItemDto(
-                                id = itemId,
-                                orderId = remoteOrderId,
-                                productId = prodId,
-                                quantity = item.quantity,
-                                priceAtSale = item.unitPrice
-                            )
-                            try {
-                                postgrest.from("order_items").insert(remoteItem)
-                            } catch (itemErr: Exception) {
-                                itemErr.printStackTrace()
-                            }
-                        }
-                    } catch (orderErr: Exception) {
-                        orderErr.printStackTrace()
-                    }
-                }
+            if (order.subOrders.isEmpty()) {
+                return@withContext Result.failure(Exception("El pedido no contiene ningún producto."))
             }
 
-            Result.success(order)
+            if (postgrest != null) {
+
+                val subordersArray = buildJsonArray {
+                    for (sub in order.subOrders) {
+                        val subId = if (isValidUUID(sub.id)) sub.id else UUID.randomUUID().toString()
+                        add(buildJsonObject {
+                            put("id", subId)
+                            put("seller_id", sub.sellerId)
+                            put("items", buildJsonArray {
+                                for (item in sub.items) {
+                                    val itemId = if (isValidUUID(item.id)) item.id else UUID.randomUUID().toString()
+                                    val prodId = if (isValidUUID(item.productId)) item.productId else UUID.randomUUID().toString()
+                                    add(buildJsonObject {
+                                        put("id", itemId)
+                                        put("product_id", prodId)
+                                        put("quantity", item.quantity)
+                                        put("unit_price", item.unitPrice)
+                                    })
+                                }
+                            })
+                        })
+                    }
+                }
+
+                val orderId = if (isValidUUID(order.id)) order.id else UUID.randomUUID().toString()
+                val paymentMethodName = order.subOrders.firstOrNull()?.paymentMethod?.name ?: PaymentMethod.EFECTIVO.name
+
+                val response = postgrest.rpc(
+                    function = "checkout_order_atomic",
+                    parameters = buildJsonObject {
+                        put("p_order_id", orderId)
+                        put("p_meeting_point_id", order.meetingPointId)
+                        put("p_meeting_point_name", order.meetingPointName)
+                        put("p_scheduled_time", order.scheduledTime)
+                        put("p_payment_method", paymentMethodName)
+                        put("p_notes", order.notes)
+                        put("p_suborders", subordersArray)
+                    }
+                ).decodeSingle<CheckoutResponseDto>()
+
+                if (!response.success) {
+                    return@withContext Result.failure(Exception(response.message ?: "No se pudo confirmar el pedido en el servidor."))
+                }
+
+                val confirmedOrder = order.copy(
+                    id = response.orderId ?: order.id,
+                    totalAmount = response.totalAmount ?: order.totalAmount,
+                    status = OrderStatus.PENDIENTE
+                )
+
+                val currentList = _ordersFlow.value.toMutableList()
+                currentList.removeAll { it.id == confirmedOrder.id }
+                currentList.add(0, confirmedOrder)
+                _ordersFlow.value = currentList
+
+                Result.success(confirmedOrder)
+            } else {
+                val currentList = _ordersFlow.value.toMutableList()
+                currentList.removeAll { it.id == order.id }
+                currentList.add(0, order)
+                _ordersFlow.value = currentList
+                Result.success(order)
+            }
         } catch (e: Exception) {
-            Result.failure(e)
+            val friendlyMsg = mapExceptionToUserFriendlyMessage(e)
+            Result.failure(Exception(friendlyMsg, e))
         }
     }
 
-    private val productNameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
-
-    private suspend fun fetchOrderItemsWithNames(orderIds: List<String>): Map<String, List<SubOrderItem>> {
-        if (postgrest == null || orderIds.isEmpty()) return emptyMap()
-        return try {
-            val items = postgrest.from("order_items")
-                .select {
-                    filter {
-                        isIn("order_id", orderIds)
-                    }
-                }
-                .decodeList<RemoteOrderItemDto>()
-
-            if (items.isEmpty()) return emptyMap()
-
-            val missingProductIds = items.map { it.productId }
-                .filter { isValidUUID(it) && !productNameCache.containsKey(it) }
-                .distinct()
-
-            if (missingProductIds.isNotEmpty()) {
-                try {
-                    val prods = postgrest.from("products")
-                        .select {
-                            filter {
-                                isIn("id", missingProductIds)
-                            }
-                        }
-                        .decodeList<ProductBasicDto>()
-                    for (p in prods) {
-                        productNameCache[p.id] = p.name
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+    private fun mapExceptionToUserFriendlyMessage(e: Exception): String {
+        val msg = e.message.orEmpty()
+        return when {
+            msg.contains("INSUFFICIENT_STOCK", ignoreCase = true) -> {
+                val detail = msg.substringAfter("INSUFFICIENT_STOCK:").substringBefore("\n").trim()
+                if (detail.isNotBlank()) detail else "Stock insuficiente para uno de los productos seleccionados."
             }
-
-            items.groupBy { it.orderId }.mapValues { (_, orderItems) ->
-                orderItems.map { oi ->
-                    val name = productNameCache[oi.productId] ?: "Producto Valle-Go"
-                    SubOrderItem(
-                        id = oi.id,
-                        subOrderId = oi.orderId,
-                        productId = oi.productId,
-                        productName = name,
-                        quantity = oi.quantity,
-                        unitPrice = oi.priceAtSale,
-                        subtotal = oi.priceAtSale * oi.quantity
-                    )
-                }
+            msg.contains("SELLER_CLOSED", ignoreCase = true) -> {
+                "Uno de los puestos del carrito no está aceptando pedidos en este momento."
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            emptyMap()
+            msg.contains("SELF_PURCHASE", ignoreCase = true) -> {
+                "No puedes realizar un pedido a tu propio emprendimiento."
+            }
+            msg.contains("PRODUCT_UNAVAILABLE", ignoreCase = true) -> {
+                "Uno de los productos seleccionados ya no se encuentra disponible."
+            }
+            msg.contains("UNAUTHENTICATED", ignoreCase = true) -> {
+                "Sesión no autenticada. Por favor vuelve a iniciar sesión."
+            }
+            msg.contains("INVALID_DATA", ignoreCase = true) -> {
+                msg.substringAfter("INVALID_DATA:").substringBefore("\n").trim()
+            }
+            else -> e.localizedMessage ?: "Error de conexión al confirmar el pedido. Por favor reintenta."
         }
     }
 
@@ -224,7 +241,6 @@ class OrderRepositoryImpl(
     }
 
     override fun observeOrdersForBuyer(buyerId: String): Flow<List<Order>> = flow {
-        // Emitir primero el caché local
         emit(_ordersFlow.value.filter { it.buyerId == buyerId })
 
         while (true) {
@@ -237,154 +253,251 @@ class OrderRepositoryImpl(
                             }
                         }
                         .decodeList<RemoteOrderDto>()
+                        .sortedByDescending { it.createdAt }
 
                     if (remoteOrders.isNotEmpty()) {
-                        val currentLocal = _ordersFlow.value.toMutableList()
-                        var hasChanges = false
+                        val orderIds = remoteOrders.map { it.id }
 
-                        val neededOrderIds = remoteOrders.filter { ro ->
-                            currentLocal.find { it.id == ro.id }?.subOrders?.firstOrNull()?.items.isNullOrEmpty()
-                        }.map { it.id }
-
-                        val itemsByOrder = if (neededOrderIds.isNotEmpty()) {
-                            fetchOrderItemsWithNames(neededOrderIds)
-                        } else emptyMap()
-
-                        for (ro in remoteOrders) {
-                            val newSubStatus = mapRemoteStatusToLocal(ro.status)
-                            var found = false
-                            for (i in currentLocal.indices) {
-                                val order = currentLocal[i]
-                                val subIndex = order.subOrders.indexOfFirst { it.id == ro.id }
-                                if (subIndex >= 0) {
-                                    found = true
-                                    val currentSub = order.subOrders[subIndex]
-                                    val updatedItems = if (currentSub.items.isEmpty()) {
-                                        itemsByOrder[ro.id] ?: emptyList()
-                                    } else currentSub.items
-
-                                    if (currentSub.status != newSubStatus || currentSub.items.isEmpty()) {
-                                        val updatedSub = currentSub.copy(
-                                            status = newSubStatus,
-                                            items = updatedItems
-                                        )
-                                        val recalculated = recalculateOrderUseCase(order, updatedSub)
-                                        currentLocal[i] = recalculated
-                                        hasChanges = true
+                        val remoteSubOrders = try {
+                            postgrest.from("sub_orders")
+                                .select {
+                                    filter {
+                                        isIn("order_id", orderIds)
                                     }
                                 }
-                            }
-
-                            if (!found) {
-                                val subItems = itemsByOrder[ro.id] ?: emptyList()
-                                val sub = SubOrder(
-                                    id = ro.id,
-                                    orderId = ro.id,
-                                    sellerId = ro.sellerId,
-                                    sellerName = "Emprendedor Valle-Go",
-                                    items = subItems,
-                                    subtotalAmount = ro.totalPrice,
-                                    status = newSubStatus,
-                                    paymentMethod = PaymentMethod.EFECTIVO,
-                                    isPaymentConfirmed = (newSubStatus == SubOrderStatus.COMPLETADO),
-                                    isDeliveryConfirmed = (newSubStatus == SubOrderStatus.COMPLETADO),
-                                    createdAt = ro.createdAt
-                                )
-                                val reconstructed = Order(
-                                    id = ro.id,
-                                    buyerId = buyerId,
-                                    buyerName = "Comprador",
-                                    meetingPointId = "mp-vallego",
-                                    meetingPointName = ro.deliveryPlace ?: "Campus Los Olivos",
-                                    scheduledTime = "Turno seleccionado",
-                                    totalAmount = ro.totalPrice,
-                                    status = mapSubStatusToGeneral(newSubStatus),
-                                    subOrders = listOf(sub),
-                                    notes = null
-                                )
-                                currentLocal.add(reconstructed)
-                                hasChanges = true
-                            }
+                                .decodeList<RemoteSubOrderDto>()
+                        } catch (_: Exception) {
+                            emptyList()
                         }
 
-                        if (hasChanges) {
-                            _ordersFlow.value = currentLocal
+                        val remoteItems = try {
+                            postgrest.from("order_items")
+                                .select {
+                                    filter {
+                                        isIn("order_id", orderIds)
+                                    }
+                                }
+                                .decodeList<RemoteOrderItemDto>()
+                        } catch (_: Exception) {
+                            emptyList()
                         }
+
+                        val missingProdIds = remoteItems.map { it.productId }
+                            .filter { isValidUUID(it) && !productNameCache.containsKey(it) }
+                            .distinct()
+                        if (missingProdIds.isNotEmpty()) {
+                            try {
+                                val prods = postgrest.from("products")
+                                    .select { filter { isIn("id", missingProdIds) } }
+                                    .decodeList<ProductBasicDto>()
+                                for (p in prods) {
+                                    productNameCache[p.id] = p.name
+                                }
+                            } catch (_: Exception) {}
+                        }
+
+                        val missingSellerIds = remoteSubOrders.map { it.sellerId }
+                            .filter { isValidUUID(it) && !profileNameCache.containsKey(it) }
+                            .distinct()
+                        if (missingSellerIds.isNotEmpty()) {
+                            try {
+                                val profiles = postgrest.from("profiles")
+                                    .select { filter { isIn("id", missingSellerIds) } }
+                                    .decodeList<ProfileBasicDto>()
+                                for (pr in profiles) {
+                                    profileNameCache[pr.id] = pr.fullName ?: "Emprendedor"
+                                }
+                            } catch (_: Exception) {}
+                        }
+
+                        val itemsBySubOrder = remoteItems.groupBy { it.subOrderId ?: it.orderId }
+                        val subOrdersByOrder = remoteSubOrders.groupBy { it.orderId }
+
+                        val mappedOrders = remoteOrders.map { ro ->
+                            val subsForOrder = subOrdersByOrder[ro.id] ?: emptyList()
+                            val domainSubOrders = if (subsForOrder.isNotEmpty()) {
+                                subsForOrder.map { rso ->
+                                    val sItems = (itemsBySubOrder[rso.id] ?: emptyList()).map { oi ->
+                                        SubOrderItem(
+                                            id = oi.id,
+                                            subOrderId = rso.id,
+                                            productId = oi.productId,
+                                            productName = productNameCache[oi.productId] ?: "Producto",
+                                            quantity = oi.quantity,
+                                            unitPrice = oi.priceAtSale,
+                                            subtotal = oi.priceAtSale * oi.quantity
+                                        )
+                                    }
+                                    val subStatus = mapRemoteStatusToSubOrderStatus(rso.status)
+                                    SubOrder(
+                                        id = rso.id,
+                                        orderId = ro.id,
+                                        sellerId = rso.sellerId,
+                                        sellerName = profileNameCache[rso.sellerId] ?: "Emprendimiento",
+                                        items = sItems,
+                                        subtotalAmount = rso.subtotalAmount,
+                                        status = subStatus,
+                                        rejectionReason = rso.rejectionReason,
+                                        paymentMethod = parsePaymentMethod(rso.paymentMethod),
+                                        isPaymentConfirmed = rso.isPaymentConfirmed,
+                                        isDeliveryConfirmed = rso.isDeliveryConfirmed,
+                                        createdAt = rso.createdAt,
+                                        updatedAt = rso.updatedAt
+                                    )
+                                }
+                            } else {
+                                val legacyItems = (itemsBySubOrder[ro.id] ?: emptyList()).map { oi ->
+                                    SubOrderItem(
+                                        id = oi.id,
+                                        subOrderId = ro.id,
+                                        productId = oi.productId,
+                                        productName = productNameCache[oi.productId] ?: "Producto",
+                                        quantity = oi.quantity,
+                                        unitPrice = oi.priceAtSale,
+                                        subtotal = oi.priceAtSale * oi.quantity
+                                    )
+                                }
+                                val subStatus = mapRemoteStatusToSubOrderStatus(ro.status)
+                                listOf(
+                                    SubOrder(
+                                        id = ro.id,
+                                        orderId = ro.id,
+                                        sellerId = ro.sellerId ?: "",
+                                        sellerName = ro.sellerId?.let { profileNameCache[it] } ?: "Emprendimiento",
+                                        items = legacyItems,
+                                        subtotalAmount = ro.totalPrice,
+                                        status = subStatus,
+                                        paymentMethod = parsePaymentMethod(ro.paymentMethod),
+                                        isPaymentConfirmed = (subStatus == SubOrderStatus.COMPLETADO),
+                                        isDeliveryConfirmed = (subStatus == SubOrderStatus.COMPLETADO),
+                                        createdAt = ro.createdAt,
+                                        updatedAt = ro.updatedAt
+                                    )
+                                )
+                            }
+
+                            val orderStatus = mapRemoteStatusToOrderStatus(ro.status)
+                            val meetingPlace = ro.meetingPointName ?: ro.deliveryPlace ?: "Campus Universitario"
+                            val schedule = ro.scheduledTime ?: extractScheduleFromDeliveryPlace(ro.deliveryPlace)
+
+                            Order(
+                                id = ro.id,
+                                buyerId = ro.buyerId,
+                                buyerName = "Comprador",
+                                meetingPointId = ro.meetingPointId ?: "mp-default",
+                                meetingPointName = meetingPlace,
+                                scheduledTime = schedule,
+                                totalAmount = ro.totalPrice,
+                                status = orderStatus,
+                                subOrders = domainSubOrders,
+                                notes = ro.notes,
+                                createdAt = ro.createdAt,
+                                updatedAt = ro.updatedAt
+                            )
+                        }
+
+                        _ordersFlow.value = mappedOrders
+                        emit(mappedOrders)
+                    } else {
+                        emit(emptyList())
                     }
                 }
             } catch (_: Exception) {
-                // Polling silencioso
             }
 
-            emit(_ordersFlow.value.filter { it.buyerId == buyerId })
             delay(3000)
         }
     }.flowOn(Dispatchers.IO)
 
     override fun observeSubOrdersForSeller(sellerId: String): Flow<List<SubOrder>> = flow {
-        // Emitir primero el caché local
         emit(_ordersFlow.value.flatMap { it.subOrders }.filter { it.sellerId == sellerId })
 
         while (true) {
             try {
                 if (postgrest != null && isValidUUID(sellerId)) {
-                    val remoteOrders = postgrest.from("orders")
+                    val remoteSubOrders = postgrest.from("sub_orders")
                         .select {
                             filter {
                                 eq("seller_id", sellerId)
                             }
                         }
-                        .decodeList<RemoteOrderDto>()
+                        .decodeList<RemoteSubOrderDto>()
+                        .sortedByDescending { it.createdAt }
 
-                    if (remoteOrders.isNotEmpty()) {
-                        val currentLocal = _ordersFlow.value.flatMap { it.subOrders }.filter { it.sellerId == sellerId }.toMutableList()
-                        val mappedList = mutableListOf<SubOrder>()
+                    if (remoteSubOrders.isNotEmpty()) {
+                        val subOrderIds = remoteSubOrders.map { it.id }
 
-                        val neededOrderIds = remoteOrders.filter { ro ->
-                            currentLocal.find { it.id == ro.id }?.items.isNullOrEmpty()
-                        }.map { it.id }
+                        val remoteItems = try {
+                            postgrest.from("order_items")
+                                .select { filter { isIn("sub_order_id", subOrderIds) } }
+                                .decodeList<RemoteOrderItemDto>()
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
 
-                        val itemsByOrder = if (neededOrderIds.isNotEmpty()) {
-                            fetchOrderItemsWithNames(neededOrderIds)
-                        } else emptyMap()
+                        val missingProdIds = remoteItems.map { it.productId }
+                            .filter { isValidUUID(it) && !productNameCache.containsKey(it) }
+                            .distinct()
+                        if (missingProdIds.isNotEmpty()) {
+                            try {
+                                val prods = postgrest.from("products")
+                                    .select { filter { isIn("id", missingProdIds) } }
+                                    .decodeList<ProductBasicDto>()
+                                for (p in prods) {
+                                    productNameCache[p.id] = p.name
+                                }
+                            } catch (_: Exception) {}
+                        }
 
-                        for (ro in remoteOrders) {
-                            val existing = currentLocal.find { it.id == ro.id }
-                            val subStatus = mapRemoteStatusToLocal(ro.status)
-                            val items = if (existing != null && existing.items.isNotEmpty()) {
-                                existing.items
-                            } else {
-                                itemsByOrder[ro.id] ?: emptyList()
-                            }
+                        if (!profileNameCache.containsKey(sellerId)) {
+                            try {
+                                val pr = postgrest.from("profiles")
+                                    .select { filter { eq("id", sellerId) } }
+                                    .decodeSingleOrNull<ProfileBasicDto>()
+                                if (pr != null) {
+                                    profileNameCache[sellerId] = pr.fullName ?: "Mi Emprendimiento"
+                                }
+                            } catch (_: Exception) {}
+                        }
 
-                            val sellerName = existing?.sellerName ?: "Emprendedor Valle-Go"
+                        val itemsBySubOrder = remoteItems.groupBy { it.subOrderId }
 
-                            mappedList.add(
-                                SubOrder(
-                                    id = ro.id,
-                                    orderId = ro.id,
-                                    sellerId = ro.sellerId,
-                                    sellerName = sellerName,
-                                    items = items,
-                                    subtotalAmount = ro.totalPrice,
-                                    status = subStatus,
-                                    paymentMethod = existing?.paymentMethod ?: PaymentMethod.EFECTIVO,
-                                    isPaymentConfirmed = (subStatus == SubOrderStatus.COMPLETADO),
-                                    isDeliveryConfirmed = (subStatus == SubOrderStatus.COMPLETADO),
-                                    createdAt = ro.createdAt
+                        val mappedSubOrders = remoteSubOrders.map { rso ->
+                            val sItems = (itemsBySubOrder[rso.id] ?: emptyList()).map { oi ->
+                                SubOrderItem(
+                                    id = oi.id,
+                                    subOrderId = rso.id,
+                                    productId = oi.productId,
+                                    productName = productNameCache[oi.productId] ?: "Producto",
+                                    quantity = oi.quantity,
+                                    unitPrice = oi.priceAtSale,
+                                    subtotal = oi.priceAtSale * oi.quantity
                                 )
+                            }
+                            val subStatus = mapRemoteStatusToSubOrderStatus(rso.status)
+                            SubOrder(
+                                id = rso.id,
+                                orderId = rso.orderId,
+                                sellerId = rso.sellerId,
+                                sellerName = profileNameCache[rso.sellerId] ?: "Mi Emprendimiento",
+                                items = sItems,
+                                subtotalAmount = rso.subtotalAmount,
+                                status = subStatus,
+                                rejectionReason = rso.rejectionReason,
+                                paymentMethod = parsePaymentMethod(rso.paymentMethod),
+                                isPaymentConfirmed = rso.isPaymentConfirmed,
+                                isDeliveryConfirmed = rso.isDeliveryConfirmed,
+                                createdAt = rso.createdAt,
+                                updatedAt = rso.updatedAt
                             )
                         }
 
-                        emit(mappedList)
+                        emit(mappedSubOrders)
                     } else {
-                        emit(_ordersFlow.value.flatMap { it.subOrders }.filter { it.sellerId == sellerId })
+                        emit(emptyList())
                     }
-                } else {
-                    emit(_ordersFlow.value.flatMap { it.subOrders }.filter { it.sellerId == sellerId })
                 }
             } catch (_: Exception) {
-                emit(_ordersFlow.value.flatMap { it.subOrders }.filter { it.sellerId == sellerId })
             }
 
             delay(3000)
@@ -397,29 +510,42 @@ class OrderRepositoryImpl(
         rejectionReason: String?
     ): Result<SubOrder> = withContext(Dispatchers.IO) {
         try {
-            var updated: SubOrder? = null
-            var previousStatus: SubOrderStatus? = null
-            var targetItems: List<SubOrderItem> = emptyList()
+            if (postgrest != null && isValidUUID(subOrderId)) {
+                val remoteStatusStr = mapLocalStatusToRemote(newStatus)
 
+                val response = postgrest.rpc(
+                    function = "update_suborder_status_atomic",
+                    parameters = buildJsonObject {
+                        put("p_sub_order_id", subOrderId)
+                        put("p_new_status", remoteStatusStr)
+                        if (rejectionReason != null) {
+                            put("p_rejection_reason", rejectionReason)
+                        }
+                    }
+                ).decodeSingle<UpdateSuborderStatusResponseDto>()
+
+                if (!response.success) {
+                    return@withContext Result.failure(Exception("No se pudo actualizar el estado del subpedido en el servidor."))
+                }
+            }
+
+            var updated: SubOrder? = null
             val currentOrders = _ordersFlow.value.toMutableList()
             for (i in currentOrders.indices) {
                 val order = currentOrders[i]
-                val subOrderIndex = order.subOrders.indexOfFirst { it.id == subOrderId }
-                if (subOrderIndex >= 0) {
-                    val currentSub = order.subOrders[subOrderIndex]
-                    previousStatus = currentSub.status
-                    targetItems = currentSub.items
-
-                    val isPayConfirmed = if (newStatus == SubOrderStatus.COMPLETADO || newStatus == SubOrderStatus.PAGO_CONFIRMADO) true else currentSub.isPaymentConfirmed
-                    val isDelivConfirmed = if (newStatus == SubOrderStatus.COMPLETADO) true else currentSub.isDeliveryConfirmed
-                    val newSub = currentSub.copy(
+                val subIndex = order.subOrders.indexOfFirst { it.id == subOrderId }
+                if (subIndex >= 0) {
+                    val curSub = order.subOrders[subIndex]
+                    val isPayConfirmed = if (newStatus == SubOrderStatus.COMPLETADO || newStatus == SubOrderStatus.PAGO_CONFIRMADO) true else curSub.isPaymentConfirmed
+                    val isDelivConfirmed = if (newStatus == SubOrderStatus.COMPLETADO) true else curSub.isDeliveryConfirmed
+                    val newSub = curSub.copy(
                         status = newStatus,
-                        rejectionReason = rejectionReason ?: currentSub.rejectionReason,
+                        rejectionReason = rejectionReason ?: curSub.rejectionReason,
                         isPaymentConfirmed = isPayConfirmed,
                         isDeliveryConfirmed = isDelivConfirmed
                     )
-                    val recalculatedOrder = recalculateOrderUseCase(order, newSub)
-                    currentOrders[i] = recalculatedOrder
+                    val recalculated = recalculateOrderUseCase(order, newSub)
+                    currentOrders[i] = recalculated
                     updated = newSub
                     break
                 }
@@ -427,160 +553,85 @@ class OrderRepositoryImpl(
 
             if (updated != null) {
                 _ordersFlow.value = currentOrders
+                Result.success(updated)
             } else {
-                updated = SubOrder(
+                val fallbackSub = SubOrder(
                     id = subOrderId,
                     orderId = subOrderId,
                     sellerId = "",
                     sellerName = "Subpedido",
-                    items = emptyList(),
-                    subtotalAmount = 0.0,
                     status = newStatus,
                     rejectionReason = rejectionReason
                 )
+                Result.success(fallbackSub)
             }
-
-            // Si los ítems no estaban en memoria local, resolverlos desde Supabase order_items
-            val itemsToProcess = if (targetItems.isNotEmpty()) {
-                targetItems
-            } else if (postgrest != null) {
-                try {
-                    val rawItems = postgrest.from("order_items")
-                        .select { filter { eq("order_id", subOrderId) } }
-                        .decodeList<RemoteOrderItemDto>()
-                    rawItems.map { oi ->
-                        SubOrderItem(
-                            id = oi.id,
-                            subOrderId = subOrderId,
-                            productId = oi.productId,
-                            productName = "Producto",
-                            quantity = oi.quantity,
-                            unitPrice = oi.priceAtSale,
-                            subtotal = oi.priceAtSale * oi.quantity
-                        )
-                    }
-                } catch (_: Exception) {
-                    emptyList()
-                }
-            } else emptyList()
-
-            // GESTIÓN DE STOCK SEGÚN EL CICLO DE VIDA DEL PEDIDO:
-            // 1. Cuando el vendedor ACEPTA el pedido por primera vez: descontar el stock
-            if (newStatus == SubOrderStatus.ACEPTADO && (previousStatus == null || previousStatus == SubOrderStatus.PENDIENTE)) {
-                if (postgrest != null) {
-                    for (item in itemsToProcess) {
-                        if (isValidUUID(item.productId) && item.quantity > 0) {
-                            try {
-                                val prod = postgrest.from("products")
-                                    .select { filter { eq("id", item.productId) } }
-                                    .decodeSingleOrNull<ProductStockDto>()
-                                if (prod != null) {
-                                    val newStock = maxOf(0, prod.stock - item.quantity)
-                                    val isActive = newStock > 0
-                                    postgrest.from("products").update(
-                                        ProductStockAndActiveDto(stock = newStock, isActive = isActive)
-                                    ) {
-                                        filter { eq("id", item.productId) }
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 2. Si un pedido que YA HABÍA SIDO ACEPTADO es cancelado o rechazado: RESTAURAR el stock
-            val wasPreviouslyAccepted = previousStatus in listOf(
-                SubOrderStatus.ACEPTADO,
-                SubOrderStatus.EN_PREPARACION,
-                SubOrderStatus.LISTO,
-                SubOrderStatus.ESPERANDO_ENTREGA
-            )
-            if (wasPreviouslyAccepted && newStatus in listOf(SubOrderStatus.RECHAZADO, SubOrderStatus.CANCELADO)) {
-                if (postgrest != null) {
-                    for (item in itemsToProcess) {
-                        if (isValidUUID(item.productId) && item.quantity > 0) {
-                            try {
-                                val prod = postgrest.from("products")
-                                    .select { filter { eq("id", item.productId) } }
-                                    .decodeSingleOrNull<ProductStockDto>()
-                                if (prod != null) {
-                                    val newStock = prod.stock + item.quantity
-                                    postgrest.from("products").update(
-                                        ProductStockAndActiveDto(stock = newStock, isActive = true)
-                                    ) {
-                                        filter { eq("id", item.productId) }
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Sincronizar actualización de estado con Supabase
-            try {
-                if (postgrest != null) {
-                    val remoteStatus = mapLocalStatusToRemote(newStatus)
-                    postgrest.from("orders").update(
-                        OrderStatusUpdateDto(status = remoteStatus)
-                    ) {
-                        filter { eq("id", subOrderId) }
-                    }
-                }
-            } catch (_: Exception) {
-                // Fallback offline
-            }
-
-            Result.success(updated)
         } catch (e: Exception) {
-            Result.failure(e)
+            val friendlyMsg = when {
+                e.message.orEmpty().contains("INVALID_TRANSITION", ignoreCase = true) -> {
+                    e.message?.substringAfter("INVALID_TRANSITION:")?.substringBefore("\n")?.trim() ?: "Transición de estado no permitida."
+                }
+                e.message.orEmpty().contains("FORBIDDEN", ignoreCase = true) -> {
+                    "No tienes permisos para modificar este subpedido."
+                }
+                else -> e.localizedMessage ?: "Error al actualizar estado del subpedido."
+            }
+            Result.failure(Exception(friendlyMsg, e))
         }
     }
 
-    private fun mapRemoteStatusToLocal(status: String): SubOrderStatus {
-        return when (status.lowercase()) {
-            "pending" -> SubOrderStatus.PENDIENTE
-            "accepted" -> SubOrderStatus.ACEPTADO
-            "preparing" -> SubOrderStatus.EN_PREPARACION
-            "ready" -> SubOrderStatus.LISTO
-            "completed" -> SubOrderStatus.COMPLETADO
-            "cancelled" -> SubOrderStatus.RECHAZADO
-            else -> SubOrderStatus.PENDIENTE
-        }
+    private fun mapRemoteStatusToSubOrderStatus(status: String): SubOrderStatus = when (status.lowercase()) {
+        "pending" -> SubOrderStatus.PENDIENTE
+        "accepted" -> SubOrderStatus.ACEPTADO
+        "preparing" -> SubOrderStatus.EN_PREPARACION
+        "ready", "waiting_delivery" -> SubOrderStatus.LISTO
+        "completed", "payment_confirmed" -> SubOrderStatus.COMPLETADO
+        "rejected" -> SubOrderStatus.RECHAZADO
+        "cancelled" -> SubOrderStatus.CANCELADO
+        "not_delivered" -> SubOrderStatus.NO_ENTREGADO
+        else -> SubOrderStatus.PENDIENTE
     }
 
-    private fun mapLocalStatusToRemote(status: SubOrderStatus): String {
-        return when (status) {
-            SubOrderStatus.PENDIENTE -> "pending"
-            SubOrderStatus.ACEPTADO -> "accepted"
-            SubOrderStatus.EN_PREPARACION -> "preparing"
-            SubOrderStatus.LISTO, SubOrderStatus.ESPERANDO_ENTREGA -> "ready"
-            SubOrderStatus.COMPLETADO, SubOrderStatus.PAGO_CONFIRMADO -> "completed"
-            SubOrderStatus.RECHAZADO, SubOrderStatus.CANCELADO -> "cancelled"
-            else -> "pending"
-        }
+    private fun mapLocalStatusToRemote(status: SubOrderStatus): String = when (status) {
+        SubOrderStatus.PENDIENTE -> "pending"
+        SubOrderStatus.ACEPTADO -> "accepted"
+        SubOrderStatus.EN_PREPARACION -> "preparing"
+        SubOrderStatus.LISTO, SubOrderStatus.ESPERANDO_ENTREGA -> "ready"
+        SubOrderStatus.PAGO_CONFIRMADO, SubOrderStatus.COMPLETADO -> "completed"
+        SubOrderStatus.RECHAZADO -> "rejected"
+        SubOrderStatus.CANCELADO -> "cancelled"
+        SubOrderStatus.NO_ENTREGADO -> "not_delivered"
     }
 
-    private fun isValidUUID(value: String): Boolean {
-        return try {
-            UUID.fromString(value)
-            true
-        } catch (_: Exception) {
-            false
-        }
-    }
-
-    private fun mapSubStatusToGeneral(status: SubOrderStatus): OrderStatus = when (status) {
-        SubOrderStatus.PENDIENTE -> OrderStatus.PENDIENTE
-        SubOrderStatus.ACEPTADO, SubOrderStatus.EN_PREPARACION -> OrderStatus.EN_PROCESO
-        SubOrderStatus.LISTO, SubOrderStatus.ESPERANDO_ENTREGA -> OrderStatus.EN_PROCESO
-        SubOrderStatus.COMPLETADO -> OrderStatus.COMPLETADA
-        SubOrderStatus.RECHAZADO, SubOrderStatus.CANCELADO -> OrderStatus.CANCELADA
+    private fun mapRemoteStatusToOrderStatus(status: String): OrderStatus = when (status.lowercase()) {
+        "pending" -> OrderStatus.PENDIENTE
+        "accepted", "preparing", "ready", "in_progress" -> OrderStatus.EN_PROCESO
+        "partially_accepted" -> OrderStatus.PARCIALMENTE_ACEPTADA
+        "completed" -> OrderStatus.COMPLETADA
+        "cancelled", "rejected" -> OrderStatus.CANCELADA
         else -> OrderStatus.PENDIENTE
+    }
+
+    private fun parsePaymentMethod(method: String?): PaymentMethod = when (method?.uppercase()) {
+        "YAPE" -> PaymentMethod.YAPE
+        "PLIN" -> PaymentMethod.PLIN
+        "TRANSFERENCIA" -> PaymentMethod.TRANSFERENCIA
+        "OTRO" -> PaymentMethod.OTRO
+        else -> PaymentMethod.EFECTIVO
+    }
+
+    private fun extractScheduleFromDeliveryPlace(deliveryPlace: String?): String {
+        if (deliveryPlace == null) return "Turno seleccionado"
+        val openParen = deliveryPlace.indexOf('(')
+        val closeParen = deliveryPlace.indexOf(')')
+        return if (openParen in 0 until closeParen) {
+            deliveryPlace.substring(openParen + 1, closeParen).trim()
+        } else "Turno seleccionado"
+    }
+
+    private fun isValidUUID(value: String): Boolean = try {
+        UUID.fromString(value)
+        true
+    } catch (_: Exception) {
+        false
     }
 }

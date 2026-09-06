@@ -12,20 +12,50 @@ class RecalculateOrderUseCase {
         }
 
         val newTotalAmount = newSubOrders.sumOf { subOrder ->
-            if (subOrder.status != SubOrderStatus.RECHAZADO && subOrder.status != SubOrderStatus.CANCELADO) {
+            if (subOrder.status != SubOrderStatus.RECHAZADO && 
+                subOrder.status != SubOrderStatus.CANCELADO && 
+                subOrder.status != SubOrderStatus.NO_ENTREGADO
+            ) {
                 subOrder.subtotalAmount
             } else {
                 0.0
             }
         }
 
+        val allCancelledOrRejected = newSubOrders.isNotEmpty() && newSubOrders.all {
+            it.status == SubOrderStatus.RECHAZADO || 
+            it.status == SubOrderStatus.CANCELADO || 
+            it.status == SubOrderStatus.NO_ENTREGADO
+        }
+
+        val activeSubOrders = newSubOrders.filter {
+            it.status != SubOrderStatus.RECHAZADO && 
+            it.status != SubOrderStatus.CANCELADO && 
+            it.status != SubOrderStatus.NO_ENTREGADO
+        }
+
+        val hasAnyPendingOrInProgress = activeSubOrders.any {
+            it.status == SubOrderStatus.PENDIENTE ||
+            it.status == SubOrderStatus.ACEPTADO ||
+            it.status == SubOrderStatus.EN_PREPARACION ||
+            it.status == SubOrderStatus.LISTO ||
+            it.status == SubOrderStatus.ESPERANDO_ENTREGA
+        }
+
+        val allActiveAreCompleted = activeSubOrders.isNotEmpty() && activeSubOrders.all {
+            it.status == SubOrderStatus.COMPLETADO || it.status == SubOrderStatus.PAGO_CONFIRMADO
+        }
+
+        val hasRejected = newSubOrders.any { it.status == SubOrderStatus.RECHAZADO }
+
         val newStatus = when {
-            newSubOrders.isNotEmpty() && newSubOrders.all { it.status == SubOrderStatus.RECHAZADO || it.status == SubOrderStatus.CANCELADO } -> OrderStatus.CANCELADA
-            newSubOrders.isNotEmpty() && newSubOrders.all { it.status == SubOrderStatus.COMPLETADO } -> OrderStatus.COMPLETADA
-            newSubOrders.any { it.status == SubOrderStatus.RECHAZADO } && newSubOrders.any {
-                it.status == SubOrderStatus.COMPLETADO || it.status == SubOrderStatus.ACEPTADO || it.status == SubOrderStatus.EN_PREPARACION || it.status == SubOrderStatus.LISTO
-            } -> OrderStatus.PARCIALMENTE_ACEPTADA
-            newSubOrders.any { it.status == SubOrderStatus.ACEPTADO || it.status == SubOrderStatus.EN_PREPARACION || it.status == SubOrderStatus.LISTO || it.status == SubOrderStatus.PAGO_CONFIRMADO } -> OrderStatus.EN_PROCESO
+            allCancelledOrRejected -> OrderStatus.CANCELADA
+            allActiveAreCompleted -> OrderStatus.COMPLETADA
+            hasRejected && activeSubOrders.any { it.status != SubOrderStatus.PENDIENTE } -> OrderStatus.PARCIALMENTE_ACEPTADA
+            hasAnyPendingOrInProgress -> {
+                if (activeSubOrders.all { it.status == SubOrderStatus.PENDIENTE }) OrderStatus.PENDIENTE
+                else OrderStatus.EN_PROCESO
+            }
             else -> currentOrder.status
         }
 
