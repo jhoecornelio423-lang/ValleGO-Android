@@ -51,6 +51,22 @@ data class RemoteOrderInsertDto(
 )
 
 @Serializable
+data class ProductStockDto(
+    val id: String,
+    val stock: Int,
+    @SerialName("is_active") val isActive: Boolean = true
+)
+
+@Serializable
+data class ProductBasicDto(
+    val id: String,
+    val name: String,
+    val price: Double? = null,
+    val stock: Int? = null,
+    @SerialName("is_active") val isActive: Boolean? = null
+)
+
+@Serializable
 data class RemoteOrderItemDto(
     val id: String,
     @SerialName("order_id") val orderId: String,
@@ -85,77 +101,44 @@ class OrderRepositoryImpl(
             currentList.add(0, order)
             _ordersFlow.value = currentList
 
-            // 2. Persistir en la nube de Supabase para sincronización en tiempo real entre dispositivos
+            // 2. Persistir en la nube de Supabase (una única inserción limpia y determinista)
+            // IMPORTANTE: El stock NO se descuenta aquí en estado pendiente.
+            // Se descontará únicamente cuando el emprendedor acepte formalmente el pedido.
             if (postgrest != null) {
                 for (subOrder in order.subOrders) {
-                    var remoteOrderId = if (isValidUUID(subOrder.id)) subOrder.id else UUID.randomUUID().toString()
-                    var rpcSuccess = false
+                    val remoteOrderId = if (isValidUUID(subOrder.id)) subOrder.id else UUID.randomUUID().toString()
+                    val remoteOrder = RemoteOrderInsertDto(
+                        id = remoteOrderId,
+                        buyerId = order.buyerId,
+                        sellerId = subOrder.sellerId,
+                        totalPrice = subOrder.subtotalAmount,
+                        deliveryPlace = "${order.meetingPointName} (${order.scheduledTime})",
+                        status = "pending",
+                        orderCode = order.id.takeLast(6).uppercase()
+                    )
 
-                    // Intentar vía RPC atómica 'create_order' (descuenta stock en BD, inserta order_items y orders con permisos de sistema)
                     try {
-                        val validItems = subOrder.items.filter { isValidUUID(it.productId) && it.quantity > 0 }
-                        if (isValidUUID(subOrder.sellerId) && validItems.isNotEmpty()) {
-                            val itemsJson = buildJsonArray {
-                                for (item in validItems) {
-                                    add(
-                                        buildJsonObject {
-                                            put("product_id", item.productId)
-                                            put("quantity", item.quantity)
-                                        }
-                                    )
-                                }
-                            }
-                            val rpcParams = buildJsonObject {
-                                put("p_seller_id", subOrder.sellerId)
-                                put("p_delivery_place", "${order.meetingPointName} (${order.scheduledTime})")
-                                put("p_items", itemsJson)
-                            }
-                            val res = postgrest.rpc("create_order", rpcParams)
-                            val createdId = res.decodeSingle<String>()
-                            if (!createdId.isNullOrBlank()) {
-                                remoteOrderId = createdId
-                                rpcSuccess = true
+                        postgrest.from("orders").insert(remoteOrder)
+
+                        // Insertar ítems del subpedido en order_items
+                        for (item in subOrder.items) {
+                            val itemId = UUID.randomUUID().toString()
+                            val prodId = if (isValidUUID(item.productId)) item.productId else UUID.randomUUID().toString()
+                            val remoteItem = RemoteOrderItemDto(
+                                id = itemId,
+                                orderId = remoteOrderId,
+                                productId = prodId,
+                                quantity = item.quantity,
+                                priceAtSale = item.unitPrice
+                            )
+                            try {
+                                postgrest.from("order_items").insert(remoteItem)
+                            } catch (itemErr: Exception) {
+                                itemErr.printStackTrace()
                             }
                         }
-                    } catch (e: Exception) {
-                        // Si falla la llamada RPC, caer en inserción directa
-                        e.printStackTrace()
-                    }
-
-                    if (!rpcSuccess) {
-                        val remoteOrder = RemoteOrderInsertDto(
-                            id = remoteOrderId,
-                            buyerId = order.buyerId,
-                            sellerId = subOrder.sellerId,
-                            totalPrice = subOrder.subtotalAmount,
-                            deliveryPlace = "${order.meetingPointName} (${order.scheduledTime})",
-                            status = "pending",
-                            orderCode = order.id.takeLast(6).uppercase()
-                        )
-
-                        try {
-                            postgrest.from("orders").insert(remoteOrder)
-
-                            // Insertar ítems del subpedido
-                            for (item in subOrder.items) {
-                                val itemId = UUID.randomUUID().toString()
-                                val prodId = if (isValidUUID(item.productId)) item.productId else UUID.randomUUID().toString()
-                                val remoteItem = RemoteOrderItemDto(
-                                    id = itemId,
-                                    orderId = remoteOrderId,
-                                    productId = prodId,
-                                    quantity = item.quantity,
-                                    priceAtSale = item.unitPrice
-                                )
-                                try {
-                                    postgrest.from("order_items").insert(remoteItem)
-                                } catch (_: Exception) {
-                                    // Fallback no bloqueante para ítems individuales
-                                }
-                            }
-                        } catch (_: Exception) {
-                            // Si ocurre un error de red o RLS, la orden sigue disponible localmente
-                        }
+                    } catch (orderErr: Exception) {
+                        orderErr.printStackTrace()
                     }
                 }
             }
@@ -163,6 +146,62 @@ class OrderRepositoryImpl(
             Result.success(order)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    private val productNameCache = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    private suspend fun fetchOrderItemsWithNames(orderIds: List<String>): Map<String, List<SubOrderItem>> {
+        if (postgrest == null || orderIds.isEmpty()) return emptyMap()
+        return try {
+            val items = postgrest.from("order_items")
+                .select {
+                    filter {
+                        isIn("order_id", orderIds)
+                    }
+                }
+                .decodeList<RemoteOrderItemDto>()
+
+            if (items.isEmpty()) return emptyMap()
+
+            val missingProductIds = items.map { it.productId }
+                .filter { isValidUUID(it) && !productNameCache.containsKey(it) }
+                .distinct()
+
+            if (missingProductIds.isNotEmpty()) {
+                try {
+                    val prods = postgrest.from("products")
+                        .select {
+                            filter {
+                                isIn("id", missingProductIds)
+                            }
+                        }
+                        .decodeList<ProductBasicDto>()
+                    for (p in prods) {
+                        productNameCache[p.id] = p.name
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            items.groupBy { it.orderId }.mapValues { (_, orderItems) ->
+                orderItems.map { oi ->
+                    val name = productNameCache[oi.productId] ?: "Producto Valle-Go"
+                    SubOrderItem(
+                        id = oi.id,
+                        subOrderId = oi.orderId,
+                        productId = oi.productId,
+                        productName = name,
+                        quantity = oi.quantity,
+                        unitPrice = oi.priceAtSale,
+                        subtotal = oi.priceAtSale * oi.quantity
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyMap()
         }
     }
 
@@ -203,6 +242,14 @@ class OrderRepositoryImpl(
                         val currentLocal = _ordersFlow.value.toMutableList()
                         var hasChanges = false
 
+                        val neededOrderIds = remoteOrders.filter { ro ->
+                            currentLocal.find { it.id == ro.id }?.subOrders?.firstOrNull()?.items.isNullOrEmpty()
+                        }.map { it.id }
+
+                        val itemsByOrder = if (neededOrderIds.isNotEmpty()) {
+                            fetchOrderItemsWithNames(neededOrderIds)
+                        } else emptyMap()
+
                         for (ro in remoteOrders) {
                             val newSubStatus = mapRemoteStatusToLocal(ro.status)
                             var found = false
@@ -211,9 +258,16 @@ class OrderRepositoryImpl(
                                 val subIndex = order.subOrders.indexOfFirst { it.id == ro.id }
                                 if (subIndex >= 0) {
                                     found = true
-                                    if (order.subOrders[subIndex].status != newSubStatus) {
-                                        val currentSub = order.subOrders[subIndex]
-                                        val updatedSub = currentSub.copy(status = newSubStatus)
+                                    val currentSub = order.subOrders[subIndex]
+                                    val updatedItems = if (currentSub.items.isEmpty()) {
+                                        itemsByOrder[ro.id] ?: emptyList()
+                                    } else currentSub.items
+
+                                    if (currentSub.status != newSubStatus || currentSub.items.isEmpty()) {
+                                        val updatedSub = currentSub.copy(
+                                            status = newSubStatus,
+                                            items = updatedItems
+                                        )
                                         val recalculated = recalculateOrderUseCase(order, updatedSub)
                                         currentLocal[i] = recalculated
                                         hasChanges = true
@@ -222,12 +276,13 @@ class OrderRepositoryImpl(
                             }
 
                             if (!found) {
+                                val subItems = itemsByOrder[ro.id] ?: emptyList()
                                 val sub = SubOrder(
                                     id = ro.id,
                                     orderId = ro.id,
                                     sellerId = ro.sellerId,
                                     sellerName = "Emprendedor Valle-Go",
-                                    items = emptyList(),
+                                    items = subItems,
                                     subtotalAmount = ro.totalPrice,
                                     status = newSubStatus,
                                     paymentMethod = PaymentMethod.EFECTIVO,
@@ -285,29 +340,40 @@ class OrderRepositoryImpl(
                         val currentLocal = _ordersFlow.value.flatMap { it.subOrders }.filter { it.sellerId == sellerId }.toMutableList()
                         val mappedList = mutableListOf<SubOrder>()
 
+                        val neededOrderIds = remoteOrders.filter { ro ->
+                            currentLocal.find { it.id == ro.id }?.items.isNullOrEmpty()
+                        }.map { it.id }
+
+                        val itemsByOrder = if (neededOrderIds.isNotEmpty()) {
+                            fetchOrderItemsWithNames(neededOrderIds)
+                        } else emptyMap()
+
                         for (ro in remoteOrders) {
                             val existing = currentLocal.find { it.id == ro.id }
                             val subStatus = mapRemoteStatusToLocal(ro.status)
-
-                            if (existing != null) {
-                                mappedList.add(existing.copy(status = subStatus))
+                            val items = if (existing != null && existing.items.isNotEmpty()) {
+                                existing.items
                             } else {
-                                mappedList.add(
-                                    SubOrder(
-                                        id = ro.id,
-                                        orderId = ro.id,
-                                        sellerId = ro.sellerId,
-                                        sellerName = "Subpedido Campus",
-                                        items = emptyList(),
-                                        subtotalAmount = ro.totalPrice,
-                                        status = subStatus,
-                                        paymentMethod = PaymentMethod.EFECTIVO,
-                                        isPaymentConfirmed = (subStatus == SubOrderStatus.COMPLETADO),
-                                        isDeliveryConfirmed = (subStatus == SubOrderStatus.COMPLETADO),
-                                        createdAt = ro.createdAt
-                                    )
-                                )
+                                itemsByOrder[ro.id] ?: emptyList()
                             }
+
+                            val sellerName = existing?.sellerName ?: "Emprendedor Valle-Go"
+
+                            mappedList.add(
+                                SubOrder(
+                                    id = ro.id,
+                                    orderId = ro.id,
+                                    sellerId = ro.sellerId,
+                                    sellerName = sellerName,
+                                    items = items,
+                                    subtotalAmount = ro.totalPrice,
+                                    status = subStatus,
+                                    paymentMethod = existing?.paymentMethod ?: PaymentMethod.EFECTIVO,
+                                    isPaymentConfirmed = (subStatus == SubOrderStatus.COMPLETADO),
+                                    isDeliveryConfirmed = (subStatus == SubOrderStatus.COMPLETADO),
+                                    createdAt = ro.createdAt
+                                )
+                            )
                         }
 
                         emit(mappedList)
@@ -332,12 +398,18 @@ class OrderRepositoryImpl(
     ): Result<SubOrder> = withContext(Dispatchers.IO) {
         try {
             var updated: SubOrder? = null
+            var previousStatus: SubOrderStatus? = null
+            var targetItems: List<SubOrderItem> = emptyList()
+
             val currentOrders = _ordersFlow.value.toMutableList()
             for (i in currentOrders.indices) {
                 val order = currentOrders[i]
                 val subOrderIndex = order.subOrders.indexOfFirst { it.id == subOrderId }
                 if (subOrderIndex >= 0) {
                     val currentSub = order.subOrders[subOrderIndex]
+                    previousStatus = currentSub.status
+                    targetItems = currentSub.items
+
                     val isPayConfirmed = if (newStatus == SubOrderStatus.COMPLETADO || newStatus == SubOrderStatus.PAGO_CONFIRMADO) true else currentSub.isPaymentConfirmed
                     val isDelivConfirmed = if (newStatus == SubOrderStatus.COMPLETADO) true else currentSub.isDeliveryConfirmed
                     val newSub = currentSub.copy(
@@ -368,7 +440,89 @@ class OrderRepositoryImpl(
                 )
             }
 
-            // Sincronizar actualización con Supabase
+            // Si los ítems no estaban en memoria local, resolverlos desde Supabase order_items
+            val itemsToProcess = if (targetItems.isNotEmpty()) {
+                targetItems
+            } else if (postgrest != null) {
+                try {
+                    val rawItems = postgrest.from("order_items")
+                        .select { filter { eq("order_id", subOrderId) } }
+                        .decodeList<RemoteOrderItemDto>()
+                    rawItems.map { oi ->
+                        SubOrderItem(
+                            id = oi.id,
+                            subOrderId = subOrderId,
+                            productId = oi.productId,
+                            productName = "Producto",
+                            quantity = oi.quantity,
+                            unitPrice = oi.priceAtSale,
+                            subtotal = oi.priceAtSale * oi.quantity
+                        )
+                    }
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            } else emptyList()
+
+            // GESTIÓN DE STOCK SEGÚN EL CICLO DE VIDA DEL PEDIDO:
+            // 1. Cuando el vendedor ACEPTA el pedido por primera vez: descontar el stock
+            if (newStatus == SubOrderStatus.ACEPTADO && (previousStatus == null || previousStatus == SubOrderStatus.PENDIENTE)) {
+                if (postgrest != null) {
+                    for (item in itemsToProcess) {
+                        if (isValidUUID(item.productId) && item.quantity > 0) {
+                            try {
+                                val prod = postgrest.from("products")
+                                    .select { filter { eq("id", item.productId) } }
+                                    .decodeSingleOrNull<ProductStockDto>()
+                                if (prod != null) {
+                                    val newStock = maxOf(0, prod.stock - item.quantity)
+                                    val isActive = newStock > 0
+                                    postgrest.from("products").update(
+                                        ProductStockAndActiveDto(stock = newStock, isActive = isActive)
+                                    ) {
+                                        filter { eq("id", item.productId) }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. Si un pedido que YA HABÍA SIDO ACEPTADO es cancelado o rechazado: RESTAURAR el stock
+            val wasPreviouslyAccepted = previousStatus in listOf(
+                SubOrderStatus.ACEPTADO,
+                SubOrderStatus.EN_PREPARACION,
+                SubOrderStatus.LISTO,
+                SubOrderStatus.ESPERANDO_ENTREGA
+            )
+            if (wasPreviouslyAccepted && newStatus in listOf(SubOrderStatus.RECHAZADO, SubOrderStatus.CANCELADO)) {
+                if (postgrest != null) {
+                    for (item in itemsToProcess) {
+                        if (isValidUUID(item.productId) && item.quantity > 0) {
+                            try {
+                                val prod = postgrest.from("products")
+                                    .select { filter { eq("id", item.productId) } }
+                                    .decodeSingleOrNull<ProductStockDto>()
+                                if (prod != null) {
+                                    val newStock = prod.stock + item.quantity
+                                    postgrest.from("products").update(
+                                        ProductStockAndActiveDto(stock = newStock, isActive = true)
+                                    ) {
+                                        filter { eq("id", item.productId) }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Sincronizar actualización de estado con Supabase
             try {
                 if (postgrest != null) {
                     val remoteStatus = mapLocalStatusToRemote(newStatus)

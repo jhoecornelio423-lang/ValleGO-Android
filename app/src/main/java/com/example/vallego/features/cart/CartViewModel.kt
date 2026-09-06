@@ -78,7 +78,7 @@ class CartViewModel(
 
     fun confirmOrder(buyerProfile: UserProfile) {
         val state = _uiState.value
-        if (!state.canCheckout) return
+        if (!state.canCheckout || state.isSubmitting) return
         val point = state.selectedMeetingPoint ?: return
 
         _uiState.update { it.copy(isSubmitting = true, errorMessage = null) }

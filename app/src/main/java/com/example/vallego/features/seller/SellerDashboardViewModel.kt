@@ -213,6 +213,7 @@ class SellerDashboardViewModel(
     fun acceptSubOrder(subOrderId: String) {
         viewModelScope.launch {
             orderRepository.updateSubOrderStatus(subOrderId, SubOrderStatus.ACEPTADO)
+            loadProducts()
         }
     }
 
@@ -240,6 +241,7 @@ class SellerDashboardViewModel(
         viewModelScope.launch {
             orderRepository.updateSubOrderStatus(subOrderId, SubOrderStatus.RECHAZADO, reason)
             dismissRejectionDialog()
+            loadProducts()
         }
     }
 

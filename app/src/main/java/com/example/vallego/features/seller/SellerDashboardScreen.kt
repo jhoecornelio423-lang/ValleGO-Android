@@ -1,6 +1,7 @@
 package com.example.vallego.features.seller
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -970,7 +971,11 @@ fun ProductCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(onClick = onEditStock)
+            ) {
                 if (!categoryName.isNullOrBlank()) {
                     Text(
                         text = categoryName,
@@ -1003,27 +1008,31 @@ fun ProductCard(
                         color = Color(0xFF003366),
                         style = MaterialTheme.typography.titleMedium
                     )
-                    AssistChip(
+                    Surface(
                         onClick = onEditStock,
-                        label = {
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isOutOfStock) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isOutOfStock) Color(0xFFC8102E).copy(alpha = 0.5f) else Color.LightGray)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             Text(
                                 text = "Stock: ${product.stock}",
                                 fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.labelMedium,
                                 color = if (isOutOfStock) Color(0xFFC8102E) else MaterialTheme.colorScheme.onSurface
                             )
-                        },
-                        trailingIcon = {
                             Icon(
                                 imageVector = Icons.Default.Edit,
                                 contentDescription = "Editar Stock",
                                 modifier = Modifier.size(14.dp),
                                 tint = Color(0xFF003366)
                             )
-                        },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = if (isOutOfStock) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant
-                        )
-                    )
+                        }
+                    }
                 }
             }
             Column(

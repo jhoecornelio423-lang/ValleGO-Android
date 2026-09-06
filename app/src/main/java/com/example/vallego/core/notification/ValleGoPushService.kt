@@ -11,9 +11,12 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import com.example.vallego.data.repository.RemoteOrderDto
+import com.example.vallego.data.repository.RemoteOrderItemDto
+import com.example.vallego.data.repository.ProductBasicDto
 import com.example.vallego.domain.model.UserProfile
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.postgrest.Postgrest
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -40,6 +43,7 @@ class ValleGoPushService : Service(), KoinComponent {
 
     private val lastKnownBuyerStatuses = mutableMapOf<String, String>()
     private var isBuyerFirstRun = true
+    private val productNameCache = ConcurrentHashMap<String, String>()
 
     override fun onCreate() {
         super.onCreate()
@@ -78,6 +82,39 @@ class ValleGoPushService : Service(), KoinComponent {
     private fun markAsNotified(eventKey: String) {
         val prefs = getSharedPreferences("vallego_notifs_cache", Context.MODE_PRIVATE)
         prefs.edit().putBoolean(eventKey, true).apply()
+    }
+
+    private suspend fun getOrderItemsSummary(orderId: String): String {
+        return try {
+            val items = postgrest.from("order_items")
+                .select { filter { eq("order_id", orderId) } }
+                .decodeList<RemoteOrderItemDto>()
+            if (items.isEmpty()) return ""
+
+            val missingProductIds = items.map { it.productId }
+                .filter { it.isNotBlank() && !productNameCache.containsKey(it) }
+                .distinct()
+
+            if (missingProductIds.isNotEmpty()) {
+                try {
+                    val prods = postgrest.from("products")
+                        .select { filter { isIn("id", missingProductIds) } }
+                        .decodeList<ProductBasicDto>()
+                    for (p in prods) {
+                        productNameCache[p.id] = p.name
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            items.joinToString(", ") { item ->
+                val name = productNameCache[item.productId] ?: "Producto"
+                "$name (x${item.quantity})"
+            }
+        } catch (e: Exception) {
+            ""
+        }
     }
 
     private fun startOrderMonitoringLoop() {
@@ -139,23 +176,32 @@ class ValleGoPushService : Service(), KoinComponent {
         }
 
         for (order in orders) {
+            val eventKey = "seller_order_${order.id}"
+            if (isAlreadyNotified(eventKey)) {
+                seenSellerOrderIds.add(order.id)
+                continue
+            }
+
             val isNew = !seenSellerOrderIds.contains(order.id)
             val isPending = order.status.lowercase() in listOf("pending", "pendiente")
-            val eventKey = "seller_order_${order.id}"
 
             if (isNew && isPending) {
                 seenSellerOrderIds.add(order.id)
-                if (!isAlreadyNotified(eventKey)) {
-                    markAsNotified(eventKey)
-                    val totalStr = String.format(java.util.Locale.US, "%.2f", order.totalPrice)
-                    ValleGoNotificationHelper.showOrderNotification(
-                        context = this@ValleGoPushService,
-                        notificationId = order.id.hashCode(),
-                        title = "🔔 ¡Nuevo pedido recibido!",
-                        message = "Has recibido un nuevo pedido por S/. $totalStr. Toca para atenderlo.",
-                        orderId = order.id
-                    )
+                markAsNotified(eventKey)
+                val itemsSummary = getOrderItemsSummary(order.id)
+                val totalStr = String.format(java.util.Locale.US, "%.2f", order.totalPrice)
+                val messageText = if (itemsSummary.isNotBlank()) {
+                    "Has recibido un pedido de $itemsSummary por S/. $totalStr. Toca para atenderlo."
+                } else {
+                    "Has recibido un nuevo pedido por S/. $totalStr. Toca para atenderlo."
                 }
+                ValleGoNotificationHelper.showOrderNotification(
+                    context = this@ValleGoPushService,
+                    notificationId = order.id.hashCode(),
+                    title = "🔔 ¡Nuevo pedido recibido!",
+                    message = messageText,
+                    orderId = order.id
+                )
             } else {
                 seenSellerOrderIds.add(order.id)
             }
@@ -186,13 +232,15 @@ class ValleGoPushService : Service(), KoinComponent {
                 val eventKey = "buyer_order_${order.id}_$currentStatus"
                 if (!isAlreadyNotified(eventKey)) {
                     markAsNotified(eventKey)
+                    val itemsSummary = getOrderItemsSummary(order.id)
+                    val summaryPart = if (itemsSummary.isNotBlank()) " ($itemsSummary)" else ""
                     when (currentStatus) {
                         "accepted", "aceptado", "in_preparation", "en_preparacion" -> {
                             ValleGoNotificationHelper.showOrderNotification(
                                 context = this@ValleGoPushService,
                                 notificationId = order.id.hashCode(),
                                 title = "👨‍🍳 Pedido en preparación",
-                                message = "El vendedor comenzó a preparar tu pedido.",
+                                message = "El vendedor comenzó a preparar tu pedido$summaryPart.",
                                 orderId = order.id
                             )
                         }
@@ -201,7 +249,7 @@ class ValleGoPushService : Service(), KoinComponent {
                                 context = this@ValleGoPushService,
                                 notificationId = order.id.hashCode(),
                                 title = "✅ ¡Tu pedido está listo!",
-                                message = "Acércate a recoger tu pedido al punto de encuentro.",
+                                message = "Acércate a recoger tu pedido$summaryPart al punto de encuentro.",
                                 orderId = order.id
                             )
                         }
@@ -210,7 +258,7 @@ class ValleGoPushService : Service(), KoinComponent {
                                 context = this@ValleGoPushService,
                                 notificationId = order.id.hashCode(),
                                 title = "🎉 ¡Pedido entregado!",
-                                message = "Tu pedido ha sido completado exitosamente. ¡Buen provecho!",
+                                message = "Tu pedido$summaryPart ha sido completado exitosamente. ¡Buen provecho!",
                                 orderId = order.id
                             )
                         }
@@ -219,7 +267,7 @@ class ValleGoPushService : Service(), KoinComponent {
                                 context = this@ValleGoPushService,
                                 notificationId = order.id.hashCode(),
                                 title = "❌ Pedido cancelado",
-                                message = "Tu pedido fue cancelado.",
+                                message = "Tu pedido$summaryPart fue cancelado.",
                                 orderId = order.id
                             )
                         }

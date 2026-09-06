@@ -144,21 +144,13 @@ class ProductRepositoryImpl(
 
     override suspend fun updateProductStock(productId: String, newStock: Int): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            if (newStock <= 0) {
-                postgrest.from("products").update(
-                    ProductStockAndActiveDto(stock = 0, isActive = false)
-                ) {
-                    filter {
-                        eq("id", productId)
-                    }
-                }
-            } else {
-                postgrest.from("products").update(
-                    ProductStockOnlyDto(stock = newStock)
-                ) {
-                    filter {
-                        eq("id", productId)
-                    }
+            val safeStock = maxOf(0, newStock)
+            val isActive = safeStock > 0
+            postgrest.from("products").update(
+                ProductStockAndActiveDto(stock = safeStock, isActive = isActive)
+            ) {
+                filter {
+                    eq("id", productId)
                 }
             }
             Result.success(Unit)
