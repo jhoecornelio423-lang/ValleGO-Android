@@ -20,8 +20,8 @@ class RecalculateOrderUseCase {
         }
 
         val newStatus = when {
-            newSubOrders.all { it.status == SubOrderStatus.RECHAZADO || it.status == SubOrderStatus.CANCELADO } -> OrderStatus.CANCELADA
-            newSubOrders.all { it.status == SubOrderStatus.COMPLETADO } -> OrderStatus.COMPLETADA
+            newSubOrders.isNotEmpty() && newSubOrders.all { it.status == SubOrderStatus.RECHAZADO || it.status == SubOrderStatus.CANCELADO } -> OrderStatus.CANCELADA
+            newSubOrders.isNotEmpty() && newSubOrders.all { it.status == SubOrderStatus.COMPLETADO } -> OrderStatus.COMPLETADA
             newSubOrders.any { it.status == SubOrderStatus.RECHAZADO } && newSubOrders.any {
                 it.status == SubOrderStatus.COMPLETADO || it.status == SubOrderStatus.ACEPTADO || it.status == SubOrderStatus.EN_PREPARACION || it.status == SubOrderStatus.LISTO
             } -> OrderStatus.PARCIALMENTE_ACEPTADA

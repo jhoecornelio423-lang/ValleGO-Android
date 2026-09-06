@@ -1,50 +1,41 @@
 package com.example.vallego.theme
 
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 
-private val DarkColorScheme = darkColorScheme(primary = Purple80, secondary = PurpleGrey80, tertiary = Pink80)
-
-private val LightColorScheme =
-  lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40,
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
+private val ValleGOLightColorScheme = lightColorScheme(
+    primary = Color(0xFF003366),          // Azul Marino Institucional UCV
     onPrimary = Color.White,
+    primaryContainer = Color(0xFFE0EDFF),
+    onPrimaryContainer = Color(0xFF001E3D),
+    secondary = Color(0xFFCC0000),        // Rojo UCV
     onSecondary = Color.White,
+    secondaryContainer = Color(0xFFFFDAD6),
+    onSecondaryContainer = Color(0xFF410002),
+    tertiary = Color(0xFF0284C7),         // Celeste acento
     onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
-  )
+    background = Color(0xFFF8F9FA),       // Fondo blanco suave
+    onBackground = Color(0xFF1E293B),     // Texto oscuro nítido
+    surface = Color(0xFFFFFFFF),          // Superficie blanca pura
+    onSurface = Color(0xFF1E293B),        // Texto oscuro legible
+    surfaceVariant = Color(0xFFF1F5F9),   // Contenedores claros
+    onSurfaceVariant = Color(0xFF475569), // Texto secundario
+    outline = Color(0xFFCBD5E1)
+)
 
 @Composable
 fun ValleGOTheme(
-  darkTheme: Boolean = isSystemInDarkTheme(),
-  // Dynamic color is available on Android 12+
-  dynamicColor: Boolean = true,
-  content: @Composable () -> Unit,
+    darkTheme: Boolean = false,
+    dynamicColor: Boolean = false,
+    content: @Composable () -> Unit,
 ) {
-  val colorScheme =
-    when {
-      dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-        val context = LocalContext.current
-        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-      }
-      darkTheme -> DarkColorScheme
-      else -> LightColorScheme
-    }
-
-  MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
+    // Forzamos la paleta institucional limpia de ValleGO para que el modo oscuro
+    // del sistema del celular no rompa el diseño ni altere los contrastes
+    MaterialTheme(
+        colorScheme = ValleGOLightColorScheme,
+        typography = Typography,
+        content = content
+    )
 }

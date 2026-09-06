@@ -1,4 +1,4 @@
-﻿package com.example.vallego.features.tracking
+package com.example.vallego.features.tracking
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -93,7 +93,7 @@ fun OrderTrackingScreen(
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "AÃºn no tienes pedidos en curso",
+                        text = "Aún no tienes pedidos en curso",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -141,7 +141,7 @@ fun BuyerOrderCard(order: Order, modifier: Modifier = Modifier) {
             ) {
                 Column {
                     Text(
-                        text = "Orden #${order.id.take(8).uppercase()}",
+                        text = if (order.status == OrderStatus.COMPLETADA) "Pedido Entregado" else "Pedido en Curso",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium
                     )
@@ -184,7 +184,7 @@ fun BuyerOrderCard(order: Order, modifier: Modifier = Modifier) {
                 }
             }
 
-            // Alerta si la orden fue Parcialmente Aceptada por rechazo de algÃºn puesto
+            // Alerta si la orden fue Parcialmente Aceptada por rechazo de algún puesto
             if (order.status == OrderStatus.PARCIALMENTE_ACEPTADA) {
                 Surface(
                     color = Color(0xFFFFF3E0),
@@ -203,7 +203,7 @@ fun BuyerOrderCard(order: Order, modifier: Modifier = Modifier) {
                             modifier = Modifier.size(20.dp)
                         )
                         Text(
-                            text = "Un puesto no pudo atender su parte. El total se recalculÃ³ automÃ¡ticamente y no pagarÃ¡s por los Ã­tems cancelados.",
+                            text = "Un puesto no pudo atender su parte. El total se recalculó automáticamente y no pagarás por los ítems cancelados.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFFE65100)
                         )
@@ -246,7 +246,7 @@ fun SubOrderTrackingItem(subOrder: SubOrder) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = subOrder.sellerName.ifEmpty { "Emprendimiento #${subOrder.sellerId.take(6)}" },
+                    text = subOrder.sellerName.ifEmpty { "Emprendimiento Valle-Go" },
                     fontWeight = FontWeight.Bold,
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -260,7 +260,7 @@ fun SubOrderTrackingItem(subOrder: SubOrder) {
             // Lista compacta de productos
             subOrder.items.forEach { item ->
                 Text(
-                    text = "â€¢ ${item.quantity}x ${item.productName}",
+                    text = "• ${item.quantity}x ${item.productName}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

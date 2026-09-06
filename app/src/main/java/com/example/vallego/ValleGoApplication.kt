@@ -16,5 +16,6 @@ class ValleGoApplication : Application() {
             androidContext(this@ValleGoApplication)
             modules(networkModule, repositoryModule, uiModule)
         }
+        com.example.vallego.core.notification.ValleGoNotificationHelper.createNotificationChannels(this)
     }
 }

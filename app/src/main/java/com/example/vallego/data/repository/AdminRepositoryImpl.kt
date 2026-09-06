@@ -1,4 +1,4 @@
-﻿package com.example.vallego.data.repository
+package com.example.vallego.data.repository
 
 import com.example.vallego.domain.model.ApplicationStatus
 import com.example.vallego.domain.model.CampusMeetingPoint
@@ -32,23 +32,23 @@ class AdminRepositoryImpl(
             ),
             CampusMeetingPoint(
                 id = "mp-2",
-                name = "PabellÃ³n A - Zona de Bancas",
-                description = "Patio central frente al cafetÃ­n",
-                pavilion = "PabellÃ³n A",
+                name = "Pabellón A - Zona de Bancas",
+                description = "Patio central frente al cafetín",
+                pavilion = "Pabellón A",
                 isActive = true
             ),
             CampusMeetingPoint(
                 id = "mp-3",
-                name = "PabellÃ³n C - Explanada",
-                description = "Ãrea techada de mesas de estudio",
-                pavilion = "PabellÃ³n C",
+                name = "Pabellón C - Explanada",
+                description = "Área techada de mesas de estudio",
+                pavilion = "Pabellón C",
                 isActive = true
             ),
             CampusMeetingPoint(
                 id = "mp-4",
-                name = "CafeterÃ­a Campus - Terraza",
+                name = "Cafetería Campus - Terraza",
                 description = "Mesas al aire libre",
-                pavilion = "PabellÃ³n D",
+                pavilion = "Pabellón D",
                 isActive = false
             )
         )
@@ -62,20 +62,20 @@ class AdminRepositoryImpl(
                 applicantName = "Carlos Mendoza Ramos",
                 studentEmail = "cmendozar@ucvvirtual.edu.pe",
                 storeName = "Postres UCV",
-                category = "ReposterÃ­a",
-                description = "Venta de queques, brownies y pies de limÃ³n caseros para recreo.",
-                proposedLocation = "PabellÃ³n B piso 1",
+                category = "Repostería",
+                description = "Venta de queques, brownies y pies de limón caseros para recreo.",
+                proposedLocation = "Pabellón B piso 1",
                 status = ApplicationStatus.PENDIENTE
             ),
             SellerApplication(
                 id = "app-2",
                 userId = "user-maria",
-                applicantName = "MarÃ­a Fernanda Torres",
+                applicantName = "María Fernanda Torres",
                 studentEmail = "mtorres@ucvvirtual.edu.pe",
-                storeName = "SÃ¡ndwiches Vallejo",
-                category = "Comida RÃ¡pida",
+                storeName = "Sándwiches Vallejo",
+                category = "Comida Rápida",
                 description = "Triples, empanadas y tostadas mixtas para el desayuno.",
-                proposedLocation = "PabellÃ³n C entrada",
+                proposedLocation = "Pabellón C entrada",
                 status = ApplicationStatus.PENDIENTE
             )
         )

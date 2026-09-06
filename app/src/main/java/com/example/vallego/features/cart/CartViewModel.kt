@@ -24,6 +24,15 @@ class CartViewModel(
     val uiState: StateFlow<CartUiState> = _uiState.asStateFlow()
 
     init {
+        val schedule = generateDeliverySchedule()
+        _uiState.update {
+            it.copy(
+                availableTimeSlots = schedule.slots,
+                selectedTimeSlot = schedule.slots.firstOrNull() ?: "Hoy 12:00",
+                isCampusClosedNow = schedule.isCampusClosedNow,
+                deliveryScheduleNote = schedule.infoMessage
+            )
+        }
         viewModelScope.launch {
             cartRepository.cartCalculation.collect { calculation ->
                 _uiState.update { it.copy(calculation = calculation) }

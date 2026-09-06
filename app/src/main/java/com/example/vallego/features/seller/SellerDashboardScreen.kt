@@ -1,4 +1,4 @@
-﻿package com.example.vallego.features.seller
+package com.example.vallego.features.seller
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -6,11 +6,18 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Store
@@ -24,6 +31,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.vallego.domain.model.PaymentMethod
+import com.example.vallego.domain.model.Product
 import com.example.vallego.domain.model.SubOrder
 import com.example.vallego.domain.model.SubOrderStatus
 import com.example.vallego.domain.model.UserProfile
@@ -38,9 +46,24 @@ fun SellerDashboardScreen(
     viewModel: SellerDashboardViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(profile.id) {
-        viewModel.initialize(profile.id, profile.acceptingOrders)
+        viewModel.initialize(profile.id, profile.acceptingOrders, profile.businessLocation)
+    }
+
+    LaunchedEffect(uiState.errorMessage) {
+        uiState.errorMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearMessages()
+        }
+    }
+
+    LaunchedEffect(uiState.successMessage) {
+        uiState.successMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearMessages()
+        }
     }
 
     // Modal de Rechazo de Subpedido
@@ -59,12 +82,12 @@ fun SellerDashboardScreen(
         AlertDialog(
             onDismissRequest = { viewModel.dismissRejectionDialog() },
             title = {
-                Text("Rechazar Subpedido #${subOrder.id.take(6).uppercase()}", fontWeight = FontWeight.Bold)
+                Text("Rechazar Subpedido", fontWeight = FontWeight.Bold)
             },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        "El comprador serÃ¡ notificado y su orden total se recalcularÃ¡ automÃ¡ticamente restando este importe.",
+                        "El comprador será notificado y su orden total se recalculará automáticamente restando este importe.",
                         style = MaterialTheme.typography.bodySmall
                     )
                     commonReasons.forEach { reason ->
@@ -112,7 +135,7 @@ fun SellerDashboardScreen(
         )
     }
 
-    // Modal de ConfirmaciÃ³n de Entrega y Cobro
+    // Modal de Confirmación de Entrega y Cobro
     if (uiState.selectedSubOrderForDelivery != null) {
         val subOrder = uiState.selectedSubOrderForDelivery!!
         AlertDialog(
@@ -123,7 +146,7 @@ fun SellerDashboardScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Â¿Confirmas que entregaste el pedido al estudiante y recibiste el pago contra entrega?",
+                        text = "¿Confirmas que entregaste el pedido al estudiante y recibiste el pago contra entrega?",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Card(
@@ -132,7 +155,7 @@ fun SellerDashboardScreen(
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
-                                text = "Subpedido #${subOrder.id.take(6).uppercase()}",
+                                text = "Subpedido",
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
@@ -165,18 +188,255 @@ fun SellerDashboardScreen(
         )
     }
 
+    // Modal de Agregar Nuevo Producto al Catálogo
+    if (uiState.showAddProductDialog) {
+        var prodName by remember { mutableStateOf("") }
+        var prodPrice by remember { mutableStateOf("") }
+        var prodStock by remember { mutableStateOf("10") }
+        var prodDesc by remember { mutableStateOf("") }
+        var selectedCatId by remember(uiState.categories) {
+            mutableStateOf(uiState.categories.firstOrNull()?.id ?: "7cee355d-cf67-477c-bade-fc7867ddbe2a")
+        }
+        var validationError by remember { mutableStateOf<String?>(null) }
+
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissAddProductDialog() },
+            title = {
+                Text("Nuevo Producto al Catálogo", fontWeight = FontWeight.Bold, color = Color(0xFF003366))
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    OutlinedTextField(
+                        value = prodName,
+                        onValueChange = { prodName = it; validationError = null },
+                        label = { Text("Nombre del Producto *") },
+                        placeholder = { Text("Ej. Triple de Pollo con Palta") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = prodPrice,
+                            onValueChange = { prodPrice = it.replace(',', '.'); validationError = null },
+                            label = { Text("Precio (S/.) *") },
+                            placeholder = { Text("6.50") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next)
+                        )
+                        OutlinedTextField(
+                            value = prodStock,
+                            onValueChange = { prodStock = it.filter { ch -> ch.isDigit() }; validationError = null },
+                            label = { Text("Stock inicial *") },
+                            placeholder = { Text("15") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done)
+                        )
+                    }
+
+                    if (uiState.categories.isNotEmpty()) {
+                        var expandedCat by remember { mutableStateOf(false) }
+                        val currentCatName = uiState.categories.find { it.id == selectedCatId }?.name ?: "Selecciona Categoría"
+
+                        ExposedDropdownMenuBox(
+                            expanded = expandedCat,
+                            onExpandedChange = { expandedCat = it },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedTextField(
+                                value = currentCatName,
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Categoría") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedCat) },
+                                modifier = Modifier.menuAnchor().fillMaxWidth()
+                            )
+                            ExposedDropdownMenu(
+                                expanded = expandedCat,
+                                onDismissRequest = { expandedCat = false }
+                            ) {
+                                uiState.categories.forEach { cat ->
+                                    DropdownMenuItem(
+                                        text = { Text("${cat.icon ?: "📦"} ${cat.name}") },
+                                        onClick = {
+                                            selectedCatId = cat.id
+                                            expandedCat = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = prodDesc,
+                        onValueChange = { prodDesc = it },
+                        label = { Text("Descripción corta (opcional)") },
+                        placeholder = { Text("Detalles para el alumno") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 2
+                    )
+
+                    val errorToDisplay = validationError ?: uiState.errorMessage
+                    if (errorToDisplay != null) {
+                        Text(
+                            text = errorToDisplay,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val cleanPrice = prodPrice.trim().replace(',', '.')
+                        val cleanStock = prodStock.trim()
+                        val p = cleanPrice.toDoubleOrNull()
+                        val s = cleanStock.toIntOrNull()
+                        if (prodName.isBlank()) {
+                            validationError = "Ingresa el nombre del producto."
+                        } else if (p == null || p <= 0.0) {
+                            validationError = "Ingresa un precio válido mayor a 0 (ej. 5.50)."
+                        } else if (s == null || s < 0) {
+                            validationError = "Ingresa una cantidad de stock válida (0 o más)."
+                        } else {
+                            viewModel.createProduct(
+                                name = prodName,
+                                price = p,
+                                stock = s,
+                                categoryId = selectedCatId.ifBlank { uiState.categories.firstOrNull()?.id ?: "7cee355d-cf67-477c-bade-fc7867ddbe2a" },
+                                description = prodDesc.ifBlank { prodName }
+                            )
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366)),
+                    enabled = !uiState.isSavingProduct
+                ) {
+                    if (uiState.isSavingProduct) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White)
+                    } else {
+                        Text("Guardar Producto")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { viewModel.dismissAddProductDialog() },
+                    enabled = !uiState.isSavingProduct
+                ) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // Diálogo de Edición de Stock
+    if (uiState.selectedProductForStockEdit != null) {
+        val prod = uiState.selectedProductForStockEdit!!
+        var stockInput by remember(prod.id) { mutableStateOf(prod.stock.toString()) }
+        var stockError by remember { mutableStateOf<String?>(null) }
+
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissEditStockDialog() },
+            title = {
+                Text("Actualizar Stock", fontWeight = FontWeight.Bold, color = Color(0xFF003366))
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Producto: ${prod.name}",
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "Modifica la cantidad disponible. Si asignas 0, el producto se pausará automáticamente.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = stockInput,
+                        onValueChange = {
+                            stockInput = it.filter { ch -> ch.isDigit() }
+                            stockError = null
+                        },
+                        label = { Text("Stock disponible *") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    if (stockError != null) {
+                        Text(
+                            text = stockError!!,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val s = stockInput.toIntOrNull()
+                        if (s == null || s < 0) {
+                            stockError = "Ingresa un número entero válido (0 o más)."
+                        } else {
+                            viewModel.updateStock(prod.id, s)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366))
+                ) {
+                    Text("Guardar Stock")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissEditStockDialog() }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        floatingActionButton = {
+            if (uiState.selectedTab == SellerTab.PRODUCTOS) {
+                ExtendedFloatingActionButton(
+                    onClick = { viewModel.openAddProductDialog() },
+                    icon = { Icon(Icons.Default.Add, contentDescription = "Agregar") },
+                    text = { Text("Nuevo Producto") },
+                    containerColor = Color(0xFF003366),
+                    contentColor = Color.White
+                )
+            }
+        },
         topBar = {
             TopAppBar(
                 title = {
                     Column {
                         Text(
-                            text = profile.businessLocation ?: "Panel Emprendedor",
+                            text = profile.fullName.ifBlank { "Mi Emprendimiento" },
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF003366)
                         )
+                        val subtitle = listOfNotNull(
+                            profile.businessDescription?.takeIf { it.isNotBlank() },
+                            profile.businessCategory?.takeIf { it.isNotBlank() },
+                            profile.businessLocation?.takeIf { it.isNotBlank() }
+                        ).firstOrNull() ?: "Emprendimiento Valle-Go"
                         Text(
-                            text = profile.fullName,
+                            text = subtitle,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -184,7 +444,7 @@ fun SellerDashboardScreen(
                 },
                 actions = {
                     IconButton(onClick = onSignOut) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Cerrar sesiÃ³n")
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Cerrar sesión")
                     }
                 }
             )
@@ -221,7 +481,7 @@ fun SellerDashboardScreen(
                             color = if (uiState.isAcceptingOrders) Color(0xFF2E7D32) else Color(0xFFC8102E)
                         )
                         Text(
-                            text = if (uiState.isAcceptingOrders) "Aceptando subpedidos en campus" else "No visible en catÃ¡logo",
+                            text = if (uiState.isAcceptingOrders) "Aceptando subpedidos en campus" else "No visible en catálogo",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -233,108 +493,204 @@ fun SellerDashboardScreen(
                 }
             }
 
-            // Resumen de MÃ©tricas / KPIs del DÃ­a
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // Selector de Pestañas: Subpedidos vs Mis Productos
+            PrimaryTabRow(
+                selectedTabIndex = if (uiState.selectedTab == SellerTab.PEDIDOS) 0 else 1,
+                containerColor = Color.Transparent,
+                contentColor = Color(0xFF003366)
             ) {
-                MetricSummaryCard(
-                    title = "Ganancias",
-                    value = "S/ %.2f".format(uiState.earningsToday),
-                    color = Color(0xFF003366),
-                    modifier = Modifier.weight(1.3f)
+                Tab(
+                    selected = uiState.selectedTab == SellerTab.PEDIDOS,
+                    onClick = { viewModel.setSelectedTab(SellerTab.PEDIDOS) },
+                    text = { Text("Subpedidos (${uiState.totalSubOrdersToday})", fontWeight = FontWeight.Bold) }
                 )
-                MetricSummaryCard(
-                    title = "Pendientes",
-                    value = "${uiState.pendingCount}",
-                    color = Color(0xFFF57C00),
-                    modifier = Modifier.weight(1f)
-                )
-                MetricSummaryCard(
-                    title = "En prep.",
-                    value = "${uiState.inPreparationCount}",
-                    color = Color(0xFF1976D2),
-                    modifier = Modifier.weight(1f)
-                )
-                MetricSummaryCard(
-                    title = "Listos",
-                    value = "${uiState.readyCount}",
-                    color = Color(0xFF2E7D32),
-                    modifier = Modifier.weight(1f)
+                Tab(
+                    selected = uiState.selectedTab == SellerTab.PRODUCTOS,
+                    onClick = { viewModel.setSelectedTab(SellerTab.PRODUCTOS) },
+                    text = { Text("Mis Productos (${uiState.products.size})", fontWeight = FontWeight.Bold) }
                 )
             }
 
-            // Filtros de Estado en Chips Horizontales
-            val scrollState = rememberScrollState()
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(scrollState),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SellerOrderFilter.values().forEach { filter ->
-                    val isSelected = uiState.selectedFilter == filter
-                    val label = when (filter) {
-                        SellerOrderFilter.TODOS -> "Todos (${uiState.totalSubOrdersToday})"
-                        SellerOrderFilter.PENDIENTES -> "Pendientes (${uiState.pendingCount})"
-                        SellerOrderFilter.EN_PREPARACION -> "En Prep. (${uiState.inPreparationCount})"
-                        SellerOrderFilter.LISTOS -> "Listos (${uiState.readyCount})"
-                        SellerOrderFilter.COMPLETADOS -> "Entregados (${uiState.completedCount})"
-                        SellerOrderFilter.RECHAZADOS -> "Rechazados"
-                    }
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { viewModel.setFilter(filter) },
-                        label = { Text(label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF003366),
-                            selectedLabelColor = Color.White
-                        )
+            if (uiState.selectedTab == SellerTab.PEDIDOS) {
+                // Resumen de Métricas / KPIs del Día
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    MetricSummaryCard(
+                        title = "Ganancias",
+                        value = "S/ %.2f".format(uiState.earningsToday),
+                        color = Color(0xFF003366),
+                        modifier = Modifier.weight(1.3f)
+                    )
+                    MetricSummaryCard(
+                        title = "Pendientes",
+                        value = "${uiState.pendingCount}",
+                        color = Color(0xFFF57C00),
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricSummaryCard(
+                        title = "En prep.",
+                        value = "${uiState.inPreparationCount}",
+                        color = Color(0xFF1976D2),
+                        modifier = Modifier.weight(1f)
+                    )
+                    MetricSummaryCard(
+                        title = "Listos",
+                        value = "${uiState.readyCount}",
+                        color = Color(0xFF2E7D32),
+                        modifier = Modifier.weight(1f)
                     )
                 }
-            }
 
-            // Lista de Subpedidos
-            val subOrders = uiState.filteredSubOrders
-            if (subOrders.isEmpty()) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                // Filtros de Estado en Chips Horizontales
+                val scrollState = rememberScrollState()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(scrollState),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(28.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    SellerOrderFilter.values().forEach { filter ->
+                        val isSelected = uiState.selectedFilter == filter
+                        val label = when (filter) {
+                            SellerOrderFilter.TODOS -> "Todos (${uiState.totalSubOrdersToday})"
+                            SellerOrderFilter.PENDIENTES -> "Pendientes (${uiState.pendingCount})"
+                            SellerOrderFilter.EN_PREPARACION -> "En Prep. (${uiState.inPreparationCount})"
+                            SellerOrderFilter.LISTOS -> "Listos (${uiState.readyCount})"
+                            SellerOrderFilter.COMPLETADOS -> "Entregados (${uiState.completedCount})"
+                            SellerOrderFilter.RECHAZADOS -> "Rechazados"
+                        }
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { viewModel.setFilter(filter) },
+                            label = { Text(label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF003366),
+                                selectedLabelColor = Color.White
+                            )
+                        )
+                    }
+                }
+
+                // Lista de Subpedidos
+                val subOrders = uiState.filteredSubOrders
+                if (subOrders.isEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Store,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "No hay subpedidos en esta secciÃ³n",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Store,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "No hay subpedidos en esta sección",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(subOrders, key = { it.id }) { subOrder ->
+                            SellerSubOrderCard(
+                                subOrder = subOrder,
+                                onAccept = { viewModel.acceptSubOrder(subOrder.id) },
+                                onStartPrep = { viewModel.startPreparation(subOrder.id) },
+                                onMarkReady = { viewModel.markReady(subOrder.id) },
+                                onOpenDelivery = { viewModel.openDeliveryDialog(subOrder) },
+                                onOpenRejection = { viewModel.openRejectionDialog(subOrder) }
+                            )
+                        }
                     }
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                // Pestaña Mis Productos
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    items(subOrders, key = { it.id }) { subOrder ->
-                        SellerSubOrderCard(
-                            subOrder = subOrder,
-                            onAccept = { viewModel.acceptSubOrder(subOrder.id) },
-                            onStartPrep = { viewModel.startPreparation(subOrder.id) },
-                            onMarkReady = { viewModel.markReady(subOrder.id) },
-                            onOpenDelivery = { viewModel.openDeliveryDialog(subOrder) },
-                            onOpenRejection = { viewModel.openRejectionDialog(subOrder) }
-                        )
+                    Text(
+                        text = "Productos en Venta (${uiState.products.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF003366)
+                    )
+                    Button(
+                        onClick = { viewModel.openAddProductDialog() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366)),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Nuevo")
+                    }
+                }
+
+                if (uiState.products.isEmpty()) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Inventory2,
+                                contentDescription = null,
+                                modifier = Modifier.size(48.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Aún no tienes productos registrados en tu puesto",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(
+                                onClick = { viewModel.openAddProductDialog() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366))
+                            ) {
+                                Text("Publicar Primer Producto")
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(uiState.products, key = { it.id }) { product ->
+                            val catName = uiState.categories.find { it.id == product.categoryId }?.name
+                            ProductCard(
+                                product = product,
+                                categoryName = catName,
+                                onToggleActive = { isActive ->
+                                    viewModel.toggleProductActive(product.id, isActive)
+                                },
+                                onEditStock = {
+                                    viewModel.openEditStockDialog(product)
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -402,7 +758,7 @@ fun SellerSubOrderCard(
             ) {
                 Column {
                     Text(
-                        text = "Subpedido #${subOrder.id.take(6).uppercase()}",
+                        text = "Subpedido",
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleSmall
                     )
@@ -418,30 +774,38 @@ fun SellerSubOrderCard(
 
             HorizontalDivider()
 
-            // Lista de Ãtems del subpedido
+            // Lista de Ítems del subpedido
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                subOrder.items.forEach { item ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "${item.quantity}x ${item.productName}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "S/ %.2f".format(item.subtotal),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                if (subOrder.items.isEmpty()) {
+                    Text(
+                        text = "• 1x Subpedido Campus (S/ %.2f)".format(subOrder.subtotalAmount),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    subOrder.items.forEach { item ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "${item.quantity}x ${item.productName}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "S/ %.2f".format(item.subtotal),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }
 
             HorizontalDivider()
 
-            // Medio de pago y Botones de AcciÃ³n segÃºn el estado actual
+            // Medio de pago y Botones de Acción según el estado actual
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -496,7 +860,7 @@ fun SellerSubOrderCard(
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366)),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                         ) {
-                            Text("Iniciar PreparaciÃ³n")
+                            Text("Iniciar Preparación")
                         }
                     }
                     SubOrderStatus.EN_PREPARACION -> {
@@ -529,7 +893,7 @@ fun SellerSubOrderCard(
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
-                                text = "Entregado y Cobrado âœ“",
+                                text = "Entregado y Cobrado ✓",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF2E7D32)
@@ -561,7 +925,7 @@ fun StatusBadge(status: SubOrderStatus) {
     val (backgroundColor, textColor, label) = when (status) {
         SubOrderStatus.PENDIENTE -> Triple(Color(0xFFFFF3E0), Color(0xFFE65100), "Pendiente")
         SubOrderStatus.ACEPTADO -> Triple(Color(0xFFE3F2FD), Color(0xFF1565C0), "Aceptado")
-        SubOrderStatus.EN_PREPARACION -> Triple(Color(0xFFEDE7F6), Color(0xFF512DA8), "En PreparaciÃ³n")
+        SubOrderStatus.EN_PREPARACION -> Triple(Color(0xFFEDE7F6), Color(0xFF512DA8), "En Preparación")
         SubOrderStatus.LISTO -> Triple(Color(0xFFE8F5E9), Color(0xFF2E7D32), "Listo para Entrega")
         SubOrderStatus.ESPERANDO_ENTREGA -> Triple(Color(0xFFE8F5E9), Color(0xFF2E7D32), "Esperando Entrega")
         SubOrderStatus.PAGO_CONFIRMADO, SubOrderStatus.COMPLETADO -> Triple(Color(0xFFE0F2F1), Color(0xFF00695C), "Completado")
@@ -581,5 +945,119 @@ fun StatusBadge(status: SubOrderStatus) {
             fontWeight = FontWeight.Bold,
             color = textColor
         )
+    }
+}
+
+@Composable
+fun ProductCard(
+    product: Product,
+    categoryName: String?,
+    onToggleActive: (Boolean) -> Unit,
+    onEditStock: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isOutOfStock = product.stock <= 0
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                if (!categoryName.isNullOrBlank()) {
+                    Text(
+                        text = categoryName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF003366),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Text(
+                    text = product.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                if (!product.description.isNullOrBlank()) {
+                    Text(
+                        text = product.description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "S/ %.2f".format(product.price),
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color(0xFF003366),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    AssistChip(
+                        onClick = onEditStock,
+                        label = {
+                            Text(
+                                text = "Stock: ${product.stock}",
+                                fontWeight = FontWeight.Bold,
+                                color = if (isOutOfStock) Color(0xFFC8102E) else MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        trailingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Editar Stock",
+                                modifier = Modifier.size(14.dp),
+                                tint = Color(0xFF003366)
+                            )
+                        },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = if (isOutOfStock) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    )
+                }
+            }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                val statusText = when {
+                    isOutOfStock -> "Sin stock"
+                    product.isActive -> "Activo"
+                    else -> "Pausado"
+                }
+                val statusColor = when {
+                    isOutOfStock -> Color(0xFFC8102E)
+                    product.isActive -> Color(0xFF2E7D32)
+                    else -> Color(0xFFD97706)
+                }
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = statusColor,
+                    fontWeight = FontWeight.Bold
+                )
+                Switch(
+                    checked = product.isActive && !isOutOfStock,
+                    onCheckedChange = { desired ->
+                        if (isOutOfStock) {
+                            onToggleActive(false)
+                        } else {
+                            onToggleActive(desired)
+                        }
+                    },
+                    enabled = !isOutOfStock
+                )
+            }
+        }
     }
 }

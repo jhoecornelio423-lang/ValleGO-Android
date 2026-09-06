@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reporte de Interfaces - ValleGO Android</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --surface-hover: #334155;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --primary: #0284c7;
+            --primary-hover: #0369a1;
+            --accent-auth: #818cf8;
+            --accent-buyer: #34d399;
+            --accent-seller: #fbbf24;
+            --accent-admin: #f43f5e;
+            --radius: 14px;
+        }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        html {
+            background-color: var(--bg);
+            background: var(--bg);
+            color: var(--text);
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: var(--bg);
+            background: var(--bg);
+            color: var(--text);
+            padding: 24px;
+            min-height: 100vh;
+        }
+        header.main-header {
+            max-width: 1400px;
+            margin: 0 auto 24px auto;
+            border-bottom: 1px solid var(--surface-hover);
+            padding-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+        }
+        .header-info {
+            flex: 1;
+            min-width: 300px;
+        }
+        h1 {
+            font-size: 1.85rem;
+            margin: 0 0 6px 0;
+            color: #ffffff;
+            letter-spacing: -0.02em;
+        }
+        p.subtitle {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            margin: 0;
+            line-height: 1.4;
+        }
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .btn-pdf {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+            color: #ffffff;
+            font-size: 0.95rem;
+            font-weight: 600;
+            padding: 12px 22px;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+            transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
+        }
+        .btn-pdf:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(37, 99, 235, 0.6);
+            filter: brightness(1.1);
+        }
+        .notice-box {
+            max-width: 1400px;
+            margin: 0 auto 24px auto;
+            background: rgba(2, 132, 199, 0.12);
+            border-left: 4px solid #38bdf8;
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 0.88rem;
+            color: #bae6fd;
+        }
+
+        .page-section {
+            max-width: 1400px;
+            margin: 0 auto 36px auto;
+        }
+        .section-header {
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        .section-header h2 {
+            font-size: 1.25rem;
+            color: #38bdf8;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+        .section-header p {
+            font-size: 0.88rem;
+            color: var(--text-muted);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 24px;
+        }
+        .card {
+            background: var(--surface);
+            background-color: var(--surface);
+            border-radius: var(--radius);
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.08);
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: flex;
+            flex-direction: column;
+        }
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 24px rgba(0,0,0,0.35);
+            border-color: rgba(255,255,255,0.18);
+        }
+        .img-wrapper {
+            background: #020617;
+            background-color: #020617;
+            text-align: center;
+            padding: 14px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .img-wrapper img {
+            max-height: 400px;
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.6);
+            cursor: zoom-in;
+            transition: opacity 0.2s;
+        }
+        .card-content {
+            padding: 16px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+        .badge {
+            display: inline-block;
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 4px 9px;
+            border-radius: 6px;
+            width: fit-content;
+            margin-bottom: 10px;
+        }
+        .badge-auth { background: rgba(129, 140, 248, 0.18); color: var(--accent-auth); border: 1px solid rgba(129, 140, 248, 0.3); }
+        .badge-buyer { background: rgba(52, 211, 153, 0.18); color: var(--accent-buyer); border: 1px solid rgba(52, 211, 153, 0.3); }
+        .badge-seller { background: rgba(251, 191, 36, 0.18); color: var(--accent-seller); border: 1px solid rgba(251, 191, 36, 0.3); }
+        .badge-admin { background: rgba(244, 63, 94, 0.18); color: var(--accent-admin); border: 1px solid rgba(244, 63, 94, 0.3); }
+        h3 {
+            font-size: 1.05rem;
+            margin: 0 0 8px 0;
+            color: #ffffff;
+            font-weight: 600;
+        }
+        p {
+            font-size: 0.88rem;
+            color: var(--text-muted);
+            margin: 0;
+            line-height: 1.45;
+        }
+        footer {
+            text-align: center;
+            margin-top: 30px;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            border-top: 1px solid var(--surface-hover);
+            padding-top: 16px;
+        }
+
+        /* ESTILOS DE IMPRESIÓN Y EXPORTACIÓN A PDF: SIN MARCOS BLANCOS Y CON ESPACIADO SUPERIOR Y ENTRE IMÁGENES */
+        @media print {
+            @page {
+                size: A4 portrait;
+                margin: 0 !important; /* Cero margen blanco exterior */
+            }
+            *, *:before, *:after {
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                color-adjust: exact !important;
+            }
+            html {
+                background-color: #0f172a !important;
+                background: #0f172a !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            body {
+                background-color: #0f172a !important;
+                background: #0f172a !important;
+                color: #f8fafc !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            .no-print {
+                display: none !important;
+            }
+
+            header.main-header {
+                padding: 14mm 14mm 5mm 14mm !important;
+                margin: 0 !important;
+                border-bottom: 1px solid #334155 !important;
+                background: #0f172a !important;
+            }
+            header.main-header h1 {
+                font-size: 1.35rem !important;
+                margin-bottom: 3px !important;
+            }
+            header.main-header p.subtitle {
+                font-size: 0.78rem !important;
+            }
+
+            /* CADA PÁGINA TIENE SU PROPIO ESPACIADO SUPERIOR DE 22mm Y MÁRGENES INTERNOS */
+            .page-section {
+                page-break-before: always !important;
+                break-before: page !important;
+                margin: 0 !important;
+                padding: 22mm 14mm 10mm 14mm !important; /* Espacio superior generoso y despegado del filo a partir de la hoja 2 */
+                background-color: #0f172a !important;
+                background: #0f172a !important;
+                box-sizing: border-box !important;
+            }
+
+            /* La primera página ya tiene el main-header arriba */
+            .page-section.page-1 {
+                page-break-before: auto !important;
+                break-before: auto !important;
+                padding: 5mm 14mm 8mm 14mm !important;
+            }
+
+            .section-header {
+                margin-bottom: 10px !important;
+                padding-bottom: 4px !important;
+                border-bottom: 1px solid #334155 !important;
+            }
+            .section-header h2 {
+                font-size: 0.98rem !important;
+                color: #38bdf8 !important;
+                margin-bottom: 2px !important;
+            }
+            .section-header p {
+                font-size: 0.74rem !important;
+                color: #94a3b8 !important;
+            }
+
+            /* CUADRÍCULA DE 2 COLUMNAS CON ESPACIADO CÓMODO ENTRE TARJETAS */
+            .grid {
+                display: grid !important;
+                grid-template-columns: repeat(2, 1fr) !important;
+                gap: 16px !important; /* Separación horizontal y vertical limpia */
+            }
+            .card {
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+                background: #1e293b !important;
+                background-color: #1e293b !important;
+                border: 1px solid #334155 !important;
+                box-shadow: none !important;
+                transform: none !important;
+            }
+            .img-wrapper {
+                background: #020617 !important;
+                background-color: #020617 !important;
+                padding: 6px !important;
+            }
+            .img-wrapper img {
+                max-height: 205px !important; /* Altura calibrada para 4 tarjetas exactas por hoja */
+                width: auto !important;
+                box-shadow: none !important;
+            }
+            .card-content {
+                padding: 8px 12px !important;
+            }
+            h3 {
+                font-size: 0.85rem !important;
+                margin-bottom: 2px !important;
+            }
+            p {
+                font-size: 0.71rem !important;
+                color: #cbd5e1 !important;
+                line-height: 1.28 !important;
+            }
+            footer {
+                margin-top: 10mm !important;
+                font-size: 0.70rem !important;
+                border-top: 1px solid #334155 !important;
+                padding-top: 8px !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="main-header">
+        <div class="header-info">
+            <h1>ValleGO-Android • Informe de Verificación de Interfaces</h1>
+            <p class="subtitle">Evidencia completa ejecutada en emulador Android API 36 con cuenta institucional oficial (Comprador, Vendedor y Administrador Oficial: Marcos - UCV Lima Norte).</p>
+        </div>
+        <div class="header-actions no-print">
+            <button class="btn-pdf" onclick="exportarPDF()">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                Exportar en PDF
+            </button>
+        </div>
+    </header>
+
+    <div class="notice-box no-print">
+        <span>💡 <strong>Consejo para exportar:</strong> Al pulsar el botón "Exportar en PDF", se abrirá el diálogo de impresión de tu navegador. Elige <strong>"Guardar como PDF"</strong> y en Más ajustes asegúrate de tener marcada la casilla <strong>"Gráficos de fondo"</strong> para conservar los colores oscuros y badges exactos.</span>
+    </div>
+
+    <main>
+        
+    <section class="page-section page-1">
+        <div class="section-header">
+            <h2>Módulo 1: Autenticación y Catálogo de Compra</h2>
+            <p>Validación de dominio institucional @ucvvirtual.edu.pe, perfiles por rol y catálogo comercial.</p>
+        </div>
+        <div class="grid">
+            
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="01_login_institucional.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="01_login_institucional.png" alt="Login Institucional UCV" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-auth">Autenticación</span>
+                <h3>Login Institucional UCV</h3>
+                <p>Valida dominio institucional @ucvvirtual.edu.pe con retroalimentación visual en verde.</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="02_registro_roles.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="02_registro_roles.png" alt="Registro con Selección de Rol" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-auth">Autenticación</span>
+                <h3>Registro con Selección de Rol</h3>
+                <p>Registro para Comprador o Emprendedor con validación de teléfono para pagos móviles.</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="03_catalogo_puestos.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="03_catalogo_puestos.png" alt="Catálogo de Puestos del Campus" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-buyer">Comprador</span>
+                <h3>Catálogo de Puestos del Campus</h3>
+                <p>Lista de locales del campus (Papu Burger, Dulce Valle, Coffee Campus) con disponibilidad en vivo.</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="04_carrito_multipuesto.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="04_carrito_multipuesto.png" alt="Carrito Multi-Puesto Inteligente" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-buyer">Comprador</span>
+                <h3>Carrito Multi-Puesto Inteligente</h3>
+                <p>Agrupación automática de ítems por puesto independiente y consolidación de total.</p>
+            </div>
+        </div>
+        
+        </div>
+        
+    </section>
+    
+    <section class="page-section page-2">
+        <div class="section-header">
+            <h2>Módulo 2: Checkout, Tracking y Panel Emprendedor</h2>
+            <p>Puntos de encuentro, franjas horarias de 30 min, tracking en vivo y disponibilidad del puesto.</p>
+        </div>
+        <div class="grid">
+            
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="05_checkout_horarios_puntos.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="05_checkout_horarios_puntos.png" alt="Checkout: Puntos de Encuentro y Horarios" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-buyer">Comprador</span>
+                <h3>Checkout: Puntos de Encuentro y Horarios</h3>
+                <p>Selección de puntos de entrega del campus y franjas horarias de 30 minutos.</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="06_confirmacion_subpedidos.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="06_confirmacion_subpedidos.png" alt="Confirmación y División de Subpedidos" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-buyer">Comprador</span>
+                <h3>Confirmación y División de Subpedidos</h3>
+                <p>Generación de subpedidos independientes para cada vendedor involucrado en la compra.</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="07_seguimiento_stepper.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="07_seguimiento_stepper.png" alt="Seguimiento en Vivo (Stepper Multi-Puesto)" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-buyer">Comprador</span>
+                <h3>Seguimiento en Vivo (Stepper Multi-Puesto)</h3>
+                <p>Visualizador en tiempo real del progreso de preparación y entrega por vendedor.</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="08_panel_vendedor_abierto.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="08_panel_vendedor_abierto.png" alt="Panel Vendedor: Puesto Abierto y KPIs" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-seller">Emprendedor</span>
+                <h3>Panel Vendedor: Puesto Abierto y KPIs</h3>
+                <p>Dashboard con métricas de ventas, subpedidos activos y switch de puesto abierto.</p>
+            </div>
+        </div>
+        
+        </div>
+        
+    </section>
+    
+    <section class="page-section page-3">
+        <div class="section-header">
+            <h2>Módulo 3: Disponibilidad y Puntos de Encuentro Admin</h2>
+            <p>Control de apertura comercial y administración de puntos autorizados en campus (Admin: Marcos).</p>
+        </div>
+        <div class="grid">
+            
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="09_panel_vendedor_cerrado.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="09_panel_vendedor_cerrado.png" alt="Panel Vendedor: Puesto Cerrado" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-seller">Emprendedor</span>
+                <h3>Panel Vendedor: Puesto Cerrado</h3>
+                <p>Cambio dinámico a 'Puesto Cerrado' para pausar recepción de pedidos.</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="10_admin_puntos_encuentro.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="10_admin_puntos_encuentro.png" alt="Panel Admin: Puntos Oficiales" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-admin">Administrador</span>
+                <h3>Panel Admin: Puntos Oficiales</h3>
+                <p>Gestión de puntos de encuentro, botón '+ Nuevo' maquetado y acentos corregidos.</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="11_admin_modal_nuevo_punto.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="11_admin_modal_nuevo_punto.png" alt="Admin: Modal Nuevo Punto de Encuentro" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-admin">Administrador</span>
+                <h3>Admin: Modal Nuevo Punto de Encuentro</h3>
+                <p>Formulario para dar de alta un nuevo punto oficial en el campus.</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="12_admin_punto_creado_exito.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="12_admin_punto_creado_exito.png" alt="Admin: Punto Creado en Vivo (Puntos 5)" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-admin">Administrador</span>
+                <h3>Admin: Punto Creado en Vivo (Puntos 5)</h3>
+                <p>Punto 'Canchas Sintéticas' agregado en vivo; contador incrementado a 5.</p>
+            </div>
+        </div>
+        
+        </div>
+        
+    </section>
+    
+    <section class="page-section page-4">
+        <div class="section-header">
+            <h2>Módulo 4: Solicitudes, Métricas Campus y Cierre de Sesión</h2>
+            <p>Aprobación/rechazo con motivos, telemetría cuantitativa en tiempo real y logout seguro.</p>
+        </div>
+        <div class="grid">
+            
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="13_admin_aprobacion_solicitud.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="13_admin_aprobacion_solicitud.png" alt="Admin: Aprobación de Emprendedor" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-admin">Administrador</span>
+                <h3>Admin: Aprobación de Emprendedor</h3>
+                <p>Aprobación de 'Postres UCV' (Carlos Mendoza) con estado 'Aprobado ✓'.</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="14_admin_rechazo_con_motivo.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="14_admin_rechazo_con_motivo.png" alt="Admin: Rechazo con Motivo Seleccionado" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-admin">Administrador</span>
+                <h3>Admin: Rechazo con Motivo Seleccionado</h3>
+                <p>Rechazo de 'Sándwiches Vallejo' especificando motivo formal de bienestar universitario.</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="15_admin_telemetria_metricas.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="15_admin_telemetria_metricas.png" alt="Admin: Telemetría y Métricas en Vivo" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-admin">Administrador</span>
+                <h3>Admin: Telemetría y Métricas en Vivo</h3>
+                <p>Contadores cuantitativos sincronizados (4 puestos activos, 4/5 puntos activos, 0 postulaciones).</p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="img-wrapper">
+                <a href="16_admin_logout_retorno.png" target="_blank" title="Clic para ver en tamaño completo">
+                    <img src="16_admin_logout_retorno.png" alt="Admin: Cierre de Sesión Seguro" loading="lazy">
+                </a>
+            </div>
+            <div class="card-content">
+                <span class="badge badge-admin">Administrador</span>
+                <h3>Admin: Cierre de Sesión Seguro</h3>
+                <p>Cierre de sesión verificado con retorno limpio a la pantalla de bienvenida.</p>
+            </div>
+        </div>
+        
+        </div>
+        
+        <footer>
+            <p>ValleGO-Android &copy; 2026 • Universidad César Vallejo • Reporte Técnico Oficial de Verificación en Emulador.</p>
+        </footer>
+        
+    </section>
+    
+    </main>
+
+    <script>
+        function exportarPDF() {
+            window.print();
+        }
+    </script>
+</body>
+</html>

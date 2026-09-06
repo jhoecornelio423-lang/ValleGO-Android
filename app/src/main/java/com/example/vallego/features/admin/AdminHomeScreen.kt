@@ -253,10 +253,11 @@ fun MeetingPointsTabContent(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text("Puntos Oficiales del Campus", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 Text("Solo los puntos activos aparecen en el checkout de los alumnos", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            Spacer(modifier = Modifier.width(8.dp))
             Button(
                 onClick = onCreateClick,
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366)),

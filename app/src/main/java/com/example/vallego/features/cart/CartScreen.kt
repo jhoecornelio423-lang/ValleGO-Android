@@ -11,6 +11,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Schedule
@@ -390,10 +391,36 @@ fun CartScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Horario de Encuentro (30 min)",
+                                text = "Horario de Encuentro en Campus",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold
                             )
+                        }
+
+                        // Banner informativo sobre el horario y disponibilidad
+                        Surface(
+                            color = if (uiState.isCampusClosedNow) Color(0xFFFFF3E0) else Color(0xFFE8F5E9),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = if (uiState.isCampusClosedNow) Color(0xFFE65100) else Color(0xFF2E7D32),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = uiState.deliveryScheduleNote,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (uiState.isCampusClosedNow) Color(0xFFE65100) else Color(0xFF2E7D32),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
 
                         Row(

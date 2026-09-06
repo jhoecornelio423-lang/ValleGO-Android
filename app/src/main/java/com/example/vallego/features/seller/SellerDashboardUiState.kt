@@ -1,4 +1,4 @@
-﻿package com.example.vallego.features.seller
+package com.example.vallego.features.seller
 
 import com.example.vallego.domain.model.PaymentMethod
 import com.example.vallego.domain.model.SubOrder
@@ -13,12 +13,23 @@ enum class SellerOrderFilter {
     RECHAZADOS
 }
 
+enum class SellerTab {
+    PEDIDOS,
+    PRODUCTOS
+}
+
 data class SellerDashboardUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val successMessage: String? = null,
     val isAcceptingOrders: Boolean = true,
+    val selectedTab: SellerTab = SellerTab.PEDIDOS,
     val subOrders: List<SubOrder> = emptyList(),
+    val products: List<com.example.vallego.domain.model.Product> = emptyList(),
+    val categories: List<com.example.vallego.domain.model.Category> = emptyList(),
+    val showAddProductDialog: Boolean = false,
+    val isSavingProduct: Boolean = false,
+    val selectedProductForStockEdit: com.example.vallego.domain.model.Product? = null,
     val selectedFilter: SellerOrderFilter = SellerOrderFilter.TODOS,
     val selectedSubOrderForRejection: SubOrder? = null,
     val selectedSubOrderForDelivery: SubOrder? = null,

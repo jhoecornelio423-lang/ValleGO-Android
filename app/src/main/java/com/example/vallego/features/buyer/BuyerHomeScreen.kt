@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.AddShoppingCart
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,8 +22,12 @@ import androidx.compose.material.icons.filled.Schedule
 import com.example.vallego.domain.model.Product
 import com.example.vallego.domain.model.UserProfile
 import com.example.vallego.domain.repository.CartRepository
+import com.example.vallego.domain.repository.ProductRepository
 import com.example.vallego.features.cart.CartScreen
 import com.example.vallego.features.tracking.OrderTrackingScreen
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -31,11 +36,67 @@ fun BuyerHomeScreen(
     profile: UserProfile,
     onSignOut: () -> Unit,
     modifier: Modifier = Modifier,
-    cartRepository: CartRepository = koinInject()
+    cartRepository: CartRepository = koinInject(),
+    productRepository: ProductRepository = koinInject()
 ) {
     var showCart by remember { mutableStateOf(false) }
     var showTracking by remember { mutableStateOf(false) }
     val cartCalculation by cartRepository.cartCalculation.collectAsState()
+
+data class StoreCatalogGroup(
+    val sellerId: String,
+    val sellerName: String,
+    val location: String?,
+    val products: List<Product>
+)
+
+    var realStoresWithProducts by remember { mutableStateOf<List<StoreCatalogGroup>>(emptyList()) }
+    var isLoadingCatalog by remember { mutableStateOf(true) }
+    val coroutineScope = rememberCoroutineScope()
+
+    fun loadCatalog(isSilent: Boolean = false) {
+        if (!isSilent && realStoresWithProducts.isEmpty()) {
+            isLoadingCatalog = true
+        }
+        coroutineScope.launch {
+            val prodsResult = productRepository.getActiveProducts()
+            val sellersResult = productRepository.getSellerProfiles()
+
+            val products = prodsResult.getOrDefault(emptyList())
+            val sellers = sellersResult.getOrDefault(emptyList()).associateBy { it.id }
+
+            if (products.isNotEmpty()) {
+                val grouped = products.groupBy { it.sellerId }.mapNotNull { (sellerId, sellerProds) ->
+                    val seller = sellers[sellerId]
+                    // Si el vendedor tiene el puesto cerrado (acceptingOrders == false), no se muestra en el catálogo
+                    if (seller != null && !seller.acceptingOrders) {
+                        return@mapNotNull null
+                    }
+                    val storeTitle = seller?.fullName?.trim()?.takeIf { it.isNotBlank() }
+                        ?: seller?.businessDescription?.trim()?.takeIf { it.isNotBlank() }
+                        ?: "Emprendedor Valle-Go"
+                    val loc = seller?.businessLocation?.trim()?.takeIf { it.isNotBlank() }
+                    StoreCatalogGroup(
+                        sellerId = sellerId,
+                        sellerName = storeTitle,
+                        location = loc,
+                        products = sellerProds
+                    )
+                }
+                realStoresWithProducts = grouped
+            } else {
+                realStoresWithProducts = emptyList()
+            }
+            isLoadingCatalog = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            loadCatalog(isSilent = true)
+            delay(8000)
+        }
+    }
 
     if (showTracking) {
         OrderTrackingScreen(
@@ -57,68 +118,6 @@ fun BuyerHomeScreen(
             modifier = modifier
         )
         return
-    }
-
-    // Catálogo de muestra con productos de múltiples puestos del campus
-    val sampleProducts = remember {
-        listOf(
-            Triple(
-                "seller-papu",
-                "Papu Burger",
-                listOf(
-                    Product(
-                        id = "papu-1",
-                        sellerId = "seller-papu",
-                        name = "Hamburguesa Artesanal con Papas",
-                        description = "Carne 150g, queso cheddar, papas nativas",
-                        price = 12.00,
-                        stock = 25
-                    ),
-                    Product(
-                        id = "papu-2",
-                        sellerId = "seller-papu",
-                        name = "Gaseosa Inka Cola 500ml",
-                        price = 3.50,
-                        stock = 40
-                    )
-                )
-            ),
-            Triple(
-                "seller-dulce",
-                "Dulce Valle",
-                listOf(
-                    Product(
-                        id = "dulce-1",
-                        sellerId = "seller-dulce",
-                        name = "Brownie con Helado Artesanal",
-                        description = "Chocolate bitter 70% con nueces",
-                        price = 7.00,
-                        stock = 15
-                    ),
-                    Product(
-                        id = "dulce-2",
-                        sellerId = "seller-dulce",
-                        name = "Pack 4 Alfajores de Maicena",
-                        price = 5.00,
-                        stock = 20
-                    )
-                )
-            ),
-            Triple(
-                "seller-coffee",
-                "Coffee Campus",
-                listOf(
-                    Product(
-                        id = "coffee-1",
-                        sellerId = "seller-coffee",
-                        name = "Capuchino de Vainilla",
-                        description = "Café de Chanchamayo recién pasado",
-                        price = 6.50,
-                        stock = 30
-                    )
-                )
-            )
-        )
     }
 
     Scaffold(
@@ -148,6 +147,13 @@ fun BuyerHomeScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { loadCatalog() }) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Actualizar catálogo",
+                            tint = Color(0xFF003366)
+                        )
+                    }
                     IconButton(onClick = { showTracking = true }) {
                         Icon(
                             imageVector = Icons.Default.Schedule,
@@ -212,14 +218,63 @@ fun BuyerHomeScreen(
                 }
             }
 
-            // Catálogo por puestos
-            sampleProducts.forEach { (sellerId, sellerName, products) ->
+            if (isLoadingCatalog) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CircularProgressIndicator(color = Color(0xFF003366))
+                        Text(
+                            text = "Sincronizando catálogo con Supabase Cloud...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else if (realStoresWithProducts.isEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "No hay productos activos en este momento",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = "Los emprendedores aún no han publicado o sus puestos están pausados.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Button(
+                            onClick = { loadCatalog() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366))
+                        ) {
+                            Text("Recargar Catálogo")
+                        }
+                    }
+                }
+            } else {
+                realStoresWithProducts.forEach { group ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -231,12 +286,21 @@ fun BuyerHomeScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "🏪 $sellerName",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF003366)
-                            )
+                            Column {
+                                Text(
+                                    text = "🏪 ${group.sellerName}",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF003366)
+                                )
+                                if (!group.location.isNullOrBlank()) {
+                                    Text(
+                                        text = "📍 ${group.location}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                             Badge(containerColor = Color(0xFF2E7D32)) {
                                 Text("Abierto", color = Color.White, modifier = Modifier.padding(4.dp))
                             }
@@ -244,7 +308,7 @@ fun BuyerHomeScreen(
 
                         HorizontalDivider()
 
-                        products.forEach { product ->
+                        group.products.forEach { product ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -273,7 +337,7 @@ fun BuyerHomeScreen(
 
                                 FilledTonalButton(
                                     onClick = {
-                                        cartRepository.setStoreName(sellerId, sellerName)
+                                        cartRepository.setStoreName(group.sellerId, group.sellerName)
                                         cartRepository.addToCart(product, 1)
                                     },
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
@@ -293,4 +357,5 @@ fun BuyerHomeScreen(
             }
         }
     }
+}
 }
