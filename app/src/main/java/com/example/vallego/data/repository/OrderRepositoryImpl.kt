@@ -99,6 +99,16 @@ data class CheckoutResponseDto(
 )
 
 @Serializable
+data class RpcActionResultDto(
+    val success: Boolean = false,
+    val message: String? = null,
+    @SerialName("expired_count") val expiredCount: Int? = null,
+    @SerialName("order_id") val orderId: String? = null,
+    @SerialName("sub_order_id") val subOrderId: String? = null,
+    val status: String? = null
+)
+
+@Serializable
 data class UpdateSuborderStatusResponseDto(
     val success: Boolean = false,
     @SerialName("sub_order_id") val subOrderId: String? = null,
@@ -138,9 +148,11 @@ class OrderRepositoryImpl(
                 val subordersArray = buildJsonArray {
                     for (sub in order.subOrders) {
                         val subId = if (isValidUUID(sub.id)) sub.id else UUID.randomUUID().toString()
+                        val subPm = (sub.paymentMethod ?: PaymentMethod.EFECTIVO).name
                         add(buildJsonObject {
                             put("id", subId)
                             put("seller_id", sub.sellerId)
+                            put("payment_method", subPm)
                             put("items", buildJsonArray {
                                 for (item in sub.items) {
                                     val itemId = if (isValidUUID(item.id)) item.id else UUID.randomUUID().toString()
@@ -158,7 +170,7 @@ class OrderRepositoryImpl(
                 }
 
                 val orderId = if (isValidUUID(order.id)) order.id else UUID.randomUUID().toString()
-                val paymentMethodName = order.subOrders.firstOrNull()?.paymentMethod?.name ?: PaymentMethod.EFECTIVO.name
+                val paymentMethodName = (order.paymentMethod ?: order.subOrders.firstOrNull()?.paymentMethod ?: PaymentMethod.EFECTIVO).name
 
                 val rpcResult = postgrest.rpc(
                     function = "checkout_order_atomic",
@@ -397,6 +409,7 @@ class OrderRepositoryImpl(
                                 totalAmount = ro.totalPrice,
                                 status = orderStatus,
                                 subOrders = domainSubOrders,
+                                paymentMethod = parsePaymentMethod(ro.paymentMethod),
                                 notes = ro.notes,
                                 createdAt = ro.createdAt,
                                 updatedAt = ro.updatedAt
@@ -616,6 +629,117 @@ class OrderRepositoryImpl(
                 else -> e.localizedMessage ?: "Error al actualizar estado del subpedido."
             }
             Result.failure(Exception(friendlyMsg, e))
+        }
+    }
+
+    override suspend fun cancelOrderByBuyer(orderId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            if (postgrest != null && isValidUUID(orderId)) {
+                val rpcResult = postgrest.rpc(
+                    function = "cancel_order_by_buyer_atomic",
+                    parameters = buildJsonObject {
+                        put("p_order_id", orderId)
+                    }
+                )
+                val response = jsonParser.decodeFromString<RpcActionResultDto>(rpcResult.data)
+                if (!response.success) {
+                    return@withContext Result.failure(Exception(response.message ?: "No se pudo cancelar el pedido."))
+                }
+            }
+
+            val currentOrders = _ordersFlow.value.toMutableList()
+            val orderIdx = currentOrders.indexOfFirst { it.id == orderId }
+            if (orderIdx >= 0) {
+                val ord = currentOrders[orderIdx]
+                val cancelledSubs = ord.subOrders.map { sub ->
+                    if (sub.status == SubOrderStatus.PENDIENTE) sub.copy(status = SubOrderStatus.CANCELADO) else sub
+                }
+                currentOrders[orderIdx] = ord.copy(
+                    status = OrderStatus.CANCELADA,
+                    subOrders = cancelledSubs
+                )
+                _ordersFlow.value = currentOrders
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            val friendlyMsg = when {
+                e.message.orEmpty().contains("ORDER_ALREADY_PROCESSED", ignoreCase = true) ->
+                    "El pedido ya fue aceptado o procesado y no puede cancelarse."
+                e.message.orEmpty().contains("ORDER_NOT_FOUND", ignoreCase = true) ->
+                    "El pedido no fue encontrado."
+                else -> e.localizedMessage ?: "Error al cancelar el pedido."
+            }
+            Result.failure(Exception(friendlyMsg, e))
+        }
+    }
+
+    override suspend fun markBuyerNoShow(subOrderId: String, reason: String?): Result<SubOrder> = withContext(Dispatchers.IO) {
+        try {
+            if (postgrest != null && isValidUUID(subOrderId)) {
+                val rpcResult = postgrest.rpc(
+                    function = "mark_suborder_no_show_atomic",
+                    parameters = buildJsonObject {
+                        put("p_sub_order_id", subOrderId)
+                        put("p_reported_by_seller", true)
+                        put("p_reason", reason ?: "Comprador no se presentó al punto de entrega")
+                    }
+                )
+                val response = jsonParser.decodeFromString<RpcActionResultDto>(rpcResult.data)
+                if (!response.success) {
+                    return@withContext Result.failure(Exception(response.message ?: "No se pudo reportar la ausencia del comprador."))
+                }
+            }
+
+            var updated: SubOrder? = null
+            val currentOrders = _ordersFlow.value.toMutableList()
+            for (i in currentOrders.indices) {
+                val order = currentOrders[i]
+                val subIndex = order.subOrders.indexOfFirst { it.id == subOrderId }
+                if (subIndex >= 0) {
+                    val curSub = order.subOrders[subIndex]
+                    val newSub = curSub.copy(
+                        status = SubOrderStatus.NO_ENTREGADO,
+                        rejectionReason = reason ?: "Comprador no se presentó"
+                    )
+                    val recalculated = recalculateOrderUseCase(order, newSub)
+                    currentOrders[i] = recalculated
+                    updated = newSub
+                    break
+                }
+            }
+
+            if (updated != null) {
+                _ordersFlow.value = currentOrders
+                Result.success(updated)
+            } else {
+                val fallbackSub = SubOrder(
+                    id = subOrderId,
+                    orderId = subOrderId,
+                    sellerId = "",
+                    sellerName = "Subpedido",
+                    status = SubOrderStatus.NO_ENTREGADO,
+                    rejectionReason = reason ?: "Comprador no se presentó"
+                )
+                Result.success(fallbackSub)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun expirePendingSuborders(): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            var count = 0
+            if (postgrest != null) {
+                val rpcResult = postgrest.rpc(
+                    function = "expire_unanswered_suborders_atomic"
+                )
+                val response = jsonParser.decodeFromString<RpcActionResultDto>(rpcResult.data)
+                count = response.expiredCount ?: 0
+            }
+            Result.success(count)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 

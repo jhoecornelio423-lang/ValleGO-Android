@@ -33,6 +33,7 @@ class SellerDashboardViewModel(
         }
         _uiState.update { it.copy(isAcceptingOrders = initialAcceptingOrders) }
         loadProducts()
+        loadSellerProfile()
         viewModelScope.launch {
             orderRepository.observeSubOrdersForSeller(sellerId).collect { orders ->
                 val completed = orders.filter { it.status == SubOrderStatus.COMPLETADO }
@@ -54,6 +55,23 @@ class SellerDashboardViewModel(
         }
     }
 
+    fun loadSellerProfile() {
+        if (currentSellerId.isBlank()) return
+        viewModelScope.launch {
+            productRepository.getSellerProfiles().onSuccess { profiles ->
+                val myProfile = profiles.find { it.id == currentSellerId }
+                if (myProfile != null) {
+                    _uiState.update {
+                        it.copy(
+                            sellerProfile = myProfile,
+                            isAcceptingOrders = myProfile.acceptingOrders
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     fun loadProducts() {
         if (currentSellerId.isBlank()) return
         viewModelScope.launch {
@@ -68,8 +86,10 @@ class SellerDashboardViewModel(
 
     fun setSelectedTab(tab: SellerTab) {
         _uiState.update { it.copy(selectedTab = tab) }
-        if (tab == SellerTab.PRODUCTOS) {
-            loadProducts()
+        when (tab) {
+            SellerTab.PRODUCTOS -> loadProducts()
+            SellerTab.MI_PUESTO -> loadSellerProfile()
+            SellerTab.PEDIDOS -> {}
         }
     }
 
@@ -122,7 +142,8 @@ class SellerDashboardViewModel(
         price: Double,
         stock: Int,
         categoryId: String?,
-        description: String?
+        description: String?,
+        imageUrl: String? = null
     ) {
         if (name.isBlank() || price <= 0 || stock < 0) {
             _uiState.update { it.copy(errorMessage = "Por favor ingresa nombre, precio y stock válidos.") }
@@ -143,6 +164,7 @@ class SellerDashboardViewModel(
                 description = fallbackDesc,
                 price = price,
                 stock = stock,
+                imageUrl = imageUrl?.takeIf { it.isNotBlank() },
                 isActive = (stock > 0),
                 pickupLocation = currentPickupLocation
             )
@@ -274,6 +296,168 @@ class SellerDashboardViewModel(
                 _uiState.update { it.copy(errorMessage = result.exceptionOrNull()?.message ?: "Error al confirmar entrega y pago.") }
             } else {
                 dismissDeliveryDialog()
+            }
+        }
+    }
+
+    fun openEditProductDialog(product: Product) {
+        _uiState.update { it.copy(selectedProductForEdit = product) }
+    }
+
+    fun dismissEditProductDialog() {
+        _uiState.update { it.copy(selectedProductForEdit = null) }
+    }
+
+    fun updateProduct(
+        productId: String,
+        name: String,
+        price: Double,
+        stock: Int,
+        categoryId: String?,
+        description: String?,
+        imageUrl: String?
+    ) {
+        if (name.isBlank() || price <= 0 || stock < 0) {
+            _uiState.update { it.copy(errorMessage = "Ingresa nombre, precio y stock válidos.") }
+            return
+        }
+        val current = _uiState.value.products.find { it.id == productId } ?: return
+        val updatedProd = current.copy(
+            name = name.trim(),
+            price = price,
+            stock = stock,
+            categoryId = categoryId?.takeIf { it.isNotBlank() } ?: current.categoryId,
+            description = description?.trim()?.takeIf { it.isNotBlank() } ?: current.description,
+            imageUrl = imageUrl?.takeIf { it.isNotBlank() } ?: current.imageUrl,
+            isActive = (stock > 0)
+        )
+        _uiState.update { it.copy(isSavingProduct = true) }
+        viewModelScope.launch {
+            val result = productRepository.updateProduct(updatedProd)
+            if (result.isSuccess) {
+                val updatedList = _uiState.value.products.map { if (it.id == productId) updatedProd else it }
+                _uiState.update {
+                    it.copy(
+                        products = updatedList,
+                        selectedProductForEdit = null,
+                        isSavingProduct = false,
+                        successMessage = "¡Producto actualizado exitosamente!"
+                    )
+                }
+                loadProducts()
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "Error al actualizar el producto."
+                _uiState.update { it.copy(isSavingProduct = false, errorMessage = err) }
+            }
+        }
+    }
+
+    fun deleteProduct(productId: String) {
+        viewModelScope.launch {
+            val result = productRepository.deleteProduct(productId)
+            if (result.isSuccess) {
+                val updatedList = _uiState.value.products.filter { it.id != productId }
+                _uiState.update {
+                    it.copy(
+                        products = updatedList,
+                        selectedProductForEdit = null,
+                        successMessage = "Producto eliminado con éxito."
+                    )
+                }
+                loadProducts()
+            } else {
+                _uiState.update { it.copy(errorMessage = "No se pudo eliminar el producto.") }
+            }
+        }
+    }
+
+    fun updateBusinessProfile(
+        businessName: String,
+        businessStatus: String,
+        businessDescription: String?,
+        businessCategory: String?,
+        businessLocation: String?,
+        openTime: String?,
+        closeTime: String?,
+        bannerUrl: String?,
+        avatarUrl: String?,
+        acceptingOrders: Boolean
+    ) {
+        val currentProfile = _uiState.value.sellerProfile
+        val profileToSave = (currentProfile ?: com.example.vallego.domain.model.UserProfile(
+            id = currentSellerId,
+            fullName = businessName.ifBlank { "Emprendedor" }
+        )).copy(
+            id = currentSellerId,
+            businessName = businessName.trim().takeIf { it.isNotBlank() },
+            businessStatus = businessStatus,
+            businessDescription = businessDescription?.trim()?.takeIf { it.isNotBlank() },
+            businessCategory = businessCategory?.trim()?.takeIf { it.isNotBlank() },
+            businessLocation = businessLocation?.trim()?.takeIf { it.isNotBlank() },
+            openTime = openTime?.trim()?.takeIf { it.isNotBlank() },
+            closeTime = closeTime?.trim()?.takeIf { it.isNotBlank() },
+            bannerUrl = bannerUrl?.trim()?.takeIf { it.isNotBlank() },
+            avatarUrl = avatarUrl?.trim()?.takeIf { it.isNotBlank() },
+            acceptingOrders = acceptingOrders
+        )
+
+        _uiState.update { it.copy(isSavingProfile = true) }
+        viewModelScope.launch {
+            val result = productRepository.updateBusinessProfile(profileToSave)
+            if (result.isSuccess) {
+                val updated = result.getOrNull() ?: profileToSave
+                _uiState.update {
+                    it.copy(
+                        sellerProfile = updated,
+                        isAcceptingOrders = updated.acceptingOrders,
+                        isSavingProfile = false,
+                        successMessage = "¡Puesto actualizado con éxito!"
+                    )
+                }
+            } else {
+                val err = result.exceptionOrNull()?.message ?: "Error al guardar el puesto."
+                _uiState.update { it.copy(isSavingProfile = false, errorMessage = err) }
+            }
+        }
+    }
+
+    fun openNoShowDialog(subOrder: SubOrder) {
+        _uiState.update { it.copy(selectedSubOrderForNoShow = subOrder) }
+    }
+
+    fun dismissNoShowDialog() {
+        _uiState.update { it.copy(selectedSubOrderForNoShow = null) }
+    }
+
+    fun confirmBuyerNoShow(subOrderId: String, reason: String) {
+        viewModelScope.launch {
+            val result = orderRepository.markBuyerNoShow(subOrderId, reason.ifBlank { "Comprador no se presentó al punto" })
+            if (result.isSuccess) {
+                dismissNoShowDialog()
+                _uiState.update { it.copy(successMessage = "Subpedido marcado como NO entregado (stock devuelto).") }
+                loadProducts()
+            } else {
+                _uiState.update { it.copy(errorMessage = result.exceptionOrNull()?.message ?: "Error al reportar inasistencia.") }
+            }
+        }
+    }
+
+    fun onSubOrderExpired(subOrderId: String) {
+        viewModelScope.launch {
+            orderRepository.expirePendingSuborders()
+            _uiState.update { it.copy(errorMessage = "El subpedido ha expirado tras 15 minutos sin ser aceptado.") }
+        }
+    }
+
+    fun uploadAsset(bucket: String, path: String, bytes: ByteArray, onUploaded: (String) -> Unit) {
+        _uiState.update { it.copy(isUploadingAsset = true) }
+        viewModelScope.launch {
+            val result = productRepository.uploadImage(bucket, path, bytes)
+            _uiState.update { it.copy(isUploadingAsset = false) }
+            result.onSuccess { url ->
+                onUploaded(url)
+            }.onFailure { err ->
+                _uiState.update { it.copy(errorMessage = "Error al subir imagen: ${err.message}") }
             }
         }
     }

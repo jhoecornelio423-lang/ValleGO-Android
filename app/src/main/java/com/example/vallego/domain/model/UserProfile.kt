@@ -1,4 +1,4 @@
-﻿package com.example.vallego.domain.model
+package com.example.vallego.domain.model
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -12,6 +12,8 @@ data class UserProfile(
     @SerialName("rating_average") val ratingAverage: Double = 5.0,
     @SerialName("campus") val campus: String = "Los Olivos",
     @SerialName("student_code") val studentCode: String? = null,
+    @SerialName("business_name") val businessName: String? = null,
+    @SerialName("business_status") val businessStatus: String = "ABIERTO",
     @SerialName("business_description") val businessDescription: String? = null,
     @SerialName("business_category") val businessCategory: String? = null,
     @SerialName("business_location") val businessLocation: String? = null,
@@ -22,4 +24,6 @@ data class UserProfile(
     @SerialName("accepting_orders") val acceptingOrders: Boolean = true,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null
-)
+) {
+    val displayStoreName: String get() = businessName?.trim()?.takeIf { it.isNotBlank() } ?: fullName
+}

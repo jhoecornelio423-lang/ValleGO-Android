@@ -48,7 +48,8 @@ val repositoryModule = module {
     single<com.example.vallego.domain.repository.ProductRepository> {
         com.example.vallego.data.repository.ProductRepositoryImpl(
             postgrest = get(),
-            auth = get()
+            auth = get(),
+            storage = getOrNull()
         )
     }
 }

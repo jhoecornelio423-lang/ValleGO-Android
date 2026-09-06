@@ -1,34 +1,63 @@
 package com.example.vallego.features.buyer
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.AddShoppingCart
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.Store
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material.icons.filled.Schedule
+import com.example.vallego.domain.model.Category
 import com.example.vallego.domain.model.Product
 import com.example.vallego.domain.model.UserProfile
 import com.example.vallego.domain.repository.CartRepository
 import com.example.vallego.domain.repository.ProductRepository
 import com.example.vallego.features.cart.CartScreen
 import com.example.vallego.features.tracking.OrderTrackingScreen
+import com.example.vallego.ui.components.StoreStatusBadge
+import com.example.vallego.ui.components.ValleGoBusinessAvatar
+import com.example.vallego.ui.components.ValleGoBusinessBanner
+import com.example.vallego.ui.components.ValleGoProductImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
+
+data class StoreCatalogGroup(
+    val sellerId: String,
+    val sellerName: String,
+    val location: String?,
+    val bannerUrl: String?,
+    val avatarUrl: String?,
+    val businessStatus: String,
+    val openTime: String?,
+    val closeTime: String?,
+    val description: String?,
+    val acceptingOrders: Boolean,
+    val products: List<Product>
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,14 +72,14 @@ fun BuyerHomeScreen(
     var showTracking by remember { mutableStateOf(false) }
     val cartCalculation by cartRepository.cartCalculation.collectAsState()
 
-data class StoreCatalogGroup(
-    val sellerId: String,
-    val sellerName: String,
-    val location: String?,
-    val products: List<Product>
-)
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategoryFilter by remember { mutableStateOf("TODOS") }
+    var onlyOpenStores by remember { mutableStateOf(false) }
+
+    var selectedProductForDetail by remember { mutableStateOf<Pair<Product, StoreCatalogGroup>?>(null) }
 
     var realStoresWithProducts by remember { mutableStateOf<List<StoreCatalogGroup>>(emptyList()) }
+    var categoriesList by remember { mutableStateOf<List<Category>>(emptyList()) }
     var isLoadingCatalog by remember { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
 
@@ -61,25 +90,32 @@ data class StoreCatalogGroup(
         coroutineScope.launch {
             val prodsResult = productRepository.getActiveProducts()
             val sellersResult = productRepository.getSellerProfiles()
+            val catsResult = productRepository.getCategories()
 
             val products = prodsResult.getOrDefault(emptyList())
             val sellers = sellersResult.getOrDefault(emptyList()).associateBy { it.id }
+            categoriesList = catsResult.getOrDefault(emptyList())
 
             if (products.isNotEmpty()) {
                 val grouped = products.groupBy { it.sellerId }.mapNotNull { (sellerId, sellerProds) ->
                     val seller = sellers[sellerId]
-                    // Si el vendedor tiene el puesto cerrado (acceptingOrders == false), no se muestra en el catálogo
-                    if (seller != null && !seller.acceptingOrders) {
+                    // Si el vendedor tiene el puesto cerrado físicamente y no acepta pedidos, se oculta
+                    if (seller != null && !seller.acceptingOrders && seller.businessStatus == "CERRADO") {
                         return@mapNotNull null
                     }
-                    val storeTitle = seller?.fullName?.trim()?.takeIf { it.isNotBlank() }
-                        ?: seller?.businessDescription?.trim()?.takeIf { it.isNotBlank() }
-                        ?: "Emprendedor Valle-Go"
-                    val loc = seller?.businessLocation?.trim()?.takeIf { it.isNotBlank() }
+                    val storeTitle = seller?.displayStoreName ?: "Emprendimiento Valle-Go"
+                    val loc = seller?.businessLocation?.trim()?.takeIf { it.isNotBlank() } ?: "Campus ${profile.campus}"
                     StoreCatalogGroup(
                         sellerId = sellerId,
                         sellerName = storeTitle,
                         location = loc,
+                        bannerUrl = seller?.bannerUrl,
+                        avatarUrl = seller?.avatarUrl,
+                        businessStatus = seller?.businessStatus ?: "ABIERTO",
+                        openTime = seller?.openTime,
+                        closeTime = seller?.closeTime,
+                        description = seller?.businessDescription,
+                        acceptingOrders = seller?.acceptingOrders ?: true,
                         products = sellerProds
                     )
                 }
@@ -102,6 +138,10 @@ data class StoreCatalogGroup(
         OrderTrackingScreen(
             buyerProfile = profile,
             onNavigateBack = { showTracking = false },
+            onNavigateToCart = {
+                showTracking = false
+                showCart = true
+            },
             modifier = modifier
         )
         return
@@ -120,6 +160,53 @@ data class StoreCatalogGroup(
         return
     }
 
+    // Modal de Detalle de Producto al estilo PedidosYa
+    if (selectedProductForDetail != null) {
+        val (prod, store) = selectedProductForDetail!!
+        val catName = categoriesList.find { it.id == prod.categoryId }?.name
+        ProductDetailBottomSheet(
+            product = prod,
+            storeName = store.sellerName,
+            categoryName = catName,
+            onDismiss = { selectedProductForDetail = null },
+            onAddToCart = { product, quantity, instructions ->
+                cartRepository.setStoreName(store.sellerId, store.sellerName)
+                cartRepository.addToCart(product, quantity)
+            }
+        )
+    }
+
+    // Filtrado reactivo en tiempo real
+    val filteredStores = remember(realStoresWithProducts, searchQuery, selectedCategoryFilter, onlyOpenStores, categoriesList) {
+        val q = searchQuery.trim().lowercase()
+        realStoresWithProducts.mapNotNull { store ->
+            if (onlyOpenStores && (!store.acceptingOrders || store.businessStatus.equals("CERRADO", ignoreCase = true))) {
+                return@mapNotNull null
+            }
+            val storeMatches = q.isEmpty() || store.sellerName.lowercase().contains(q) || (store.description?.lowercase()?.contains(q) == true)
+            val matchingProducts = store.products.filter { prod ->
+                val matchesSearch = q.isEmpty() || prod.name.lowercase().contains(q) || (prod.description?.lowercase()?.contains(q) == true) || storeMatches
+                val catName = categoriesList.find { it.id == prod.categoryId }?.name?.uppercase().orEmpty()
+                val matchesCategory = when (selectedCategoryFilter) {
+                    "TODOS" -> true
+                    "COMIDAS" -> catName.contains("COMIDA") || catName.contains("ALMUERZO") || prod.name.lowercase().contains("hamburguesa") || prod.name.lowercase().contains("pollo")
+                    "POSTRES" -> catName.contains("POSTRE") || catName.contains("DULCE") || prod.name.lowercase().contains("queque") || prod.name.lowercase().contains("torta") || prod.name.lowercase().contains("alfajor")
+                    "BEBIDAS" -> catName.contains("BEBIDA") || catName.contains("JUGO") || prod.name.lowercase().contains("chicha") || prod.name.lowercase().contains("café") || prod.name.lowercase().contains("cafe")
+                    "SNACKS" -> catName.contains("SNACK") || prod.name.lowercase().contains("papa") || prod.name.lowercase().contains("snack") || prod.name.lowercase().contains("galleta")
+                    "PAPELERIA" -> catName.contains("PAPEL") || catName.contains("UTIL") || prod.name.lowercase().contains("cuaderno") || prod.name.lowercase().contains("copia")
+                    else -> true
+                }
+                matchesSearch && matchesCategory
+            }
+
+            if (matchingProducts.isNotEmpty()) {
+                store.copy(products = matchingProducts)
+            } else {
+                null
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -135,9 +222,9 @@ data class StoreCatalogGroup(
                                 imageVector = Icons.Default.LocationOn,
                                 contentDescription = null,
                                 tint = Color(0xFFC8102E),
-                                modifier = Modifier.size(14.dp)
+                                modifier = Modifier.size(13.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
                             Text(
                                 text = "Campus ${profile.campus}",
                                 style = MaterialTheme.typography.bodySmall,
@@ -173,7 +260,8 @@ data class StoreCatalogGroup(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ShoppingCart,
-                                contentDescription = "Carrito"
+                                contentDescription = "Carrito",
+                                tint = Color(0xFF003366)
                             )
                         }
                     }
@@ -193,28 +281,99 @@ data class StoreCatalogGroup(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Banner de bienvenida
+            // Barra de Búsqueda reactiva
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Buscar hamburguesa, café, postres o puesto...") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Buscar",
+                        tint = Color(0xFF003366)
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotBlank()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Borrar búsqueda")
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search)
+            )
+
+            // Carrusel horizontal de categorías por chips (Estilo PedidosYa)
+            val categoryChips = listOf(
+                "TODOS" to "🍽️ Todos",
+                "COMIDAS" to "🍔 Comidas",
+                "POSTRES" to "🧁 Postres",
+                "BEBIDAS" to "🥤 Bebidas",
+                "SNACKS" to "🍿 Snacks",
+                "PAPELERIA" to "📚 Papelería"
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Chip rápido de puestos abiertos
+                FilterChip(
+                    selected = onlyOpenStores,
+                    onClick = { onlyOpenStores = !onlyOpenStores },
+                    label = { Text("🟢 Abiertos ahora") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = Color(0xFF2E7D32),
+                        selectedLabelColor = Color.White
+                    )
+                )
+
+                categoryChips.forEach { (key, label) ->
+                    val isSelected = selectedCategoryFilter == key
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { selectedCategoryFilter = key },
+                        label = { Text(label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF003366),
+                            selectedLabelColor = Color.White
+                        )
+                    )
+                }
+            }
+
+            // Banner informativo de entrega multicentro
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF003366)),
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "¡Hola, ${profile.fullName.split(" ").firstOrNull() ?: "Estudiante"}! 👋",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Agrega antojos de varios puestos a la vez. Tu orden se dividirá automáticamente.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.9f)
-                    )
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "¡Antojos en Campus ${profile.campus}! 🎒",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Pide de diferentes puestos en una sola compra. Valle-Go organizará tus subpedidos.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                    }
                 }
             }
 
@@ -231,13 +390,13 @@ data class StoreCatalogGroup(
                     ) {
                         CircularProgressIndicator(color = Color(0xFF003366))
                         Text(
-                            text = "Sincronizando catálogo con Supabase Cloud...",
+                            text = "Cargando catálogo universitario...",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
-            } else if (realStoresWithProducts.isEmpty()) {
+            } else if (filteredStores.isEmpty()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
@@ -245,110 +404,219 @@ data class StoreCatalogGroup(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(24.dp),
+                            .padding(28.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Icon(
+                            imageVector = Icons.Default.Store,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Text(
-                            text = "No hay productos activos en este momento",
+                            text = if (searchQuery.isNotBlank()) "No se encontraron resultados para \"$searchQuery\"" else "No hay productos disponibles por ahora",
                             fontWeight = FontWeight.Bold,
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(
-                            text = "Los emprendedores aún no han publicado o sus puestos están pausados.",
+                            text = "Intenta buscando por otro término o selecciona otra categoría.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Button(
-                            onClick = { loadCatalog() },
+                            onClick = {
+                                searchQuery = ""
+                                selectedCategoryFilter = "TODOS"
+                                onlyOpenStores = false
+                                loadCatalog()
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366))
                         ) {
-                            Text("Recargar Catálogo")
+                            Text("Restablecer Filtros")
                         }
                     }
                 }
             } else {
-                realStoresWithProducts.forEach { group ->
+                // Listado de Puestos con Portada, Logo, Estado y Productos
+                filteredStores.forEach { group ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = "🏪 ${group.sellerName}",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF003366)
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            // Cabecera Visual del Puesto: Banner + Avatar Superpuesto
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                ValleGoBusinessBanner(
+                                    bannerUrl = group.bannerUrl,
+                                    storeName = group.sellerName,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(115.dp)
                                 )
-                                if (!group.location.isNullOrBlank()) {
-                                    Text(
-                                        text = "📍 ${group.location}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+
+                                Box(
+                                    modifier = Modifier
+                                        .padding(start = 14.dp, top = 75.dp)
+                                ) {
+                                    ValleGoBusinessAvatar(
+                                        avatarUrl = group.avatarUrl,
+                                        storeName = group.sellerName,
+                                        size = 52.dp
                                     )
                                 }
                             }
-                            Badge(containerColor = Color(0xFF2E7D32)) {
-                                Text("Abierto", color = Color.White, modifier = Modifier.padding(4.dp))
-                            }
-                        }
 
-                        HorizontalDivider()
+                            Spacer(modifier = Modifier.height(20.dp))
 
-                        group.products.forEach { product ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                            // Información del Puesto y Badge de Estado
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp)
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     Text(
-                                        text = product.name,
-                                        fontWeight = FontWeight.SemiBold,
-                                        style = MaterialTheme.typography.bodyMedium
+                                        text = group.sellerName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF003366)
                                     )
-                                    if (product.description != null) {
+                                    StoreStatusBadge(
+                                        status = group.businessStatus,
+                                        acceptingOrders = group.acceptingOrders
+                                    )
+                                }
+
+                                if (!group.description.isNullOrBlank()) {
+                                    Text(
+                                        text = group.description,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 2
+                                    )
+                                }
+
+                                val schedule = if (!group.openTime.isNullOrBlank() && !group.closeTime.isNullOrBlank()) {
+                                    "  •  🕒 ${group.openTime} - ${group.closeTime}"
+                                } else ""
+
+                                Text(
+                                    text = "📍 ${group.location ?: "Campus"}$schedule",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                // Aviso de puesto saturado
+                                if (group.businessStatus.equals("SATURADO", ignoreCase = true)) {
+                                    Surface(
+                                        color = Color(0xFFFFF3E0),
+                                        shape = RoundedCornerShape(6.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 6.dp)
+                                    ) {
                                         Text(
-                                            text = product.description,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            text = "⚠️ Alta demanda: Los pedidos de este puesto pueden tardar unos minutos más.",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFFE65100),
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                         )
                                     }
-                                    Text(
-                                        text = "S/ %.2f".format(product.price),
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF003366),
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
                                 }
+                            }
 
-                                FilledTonalButton(
-                                    onClick = {
-                                        cartRepository.setStoreName(group.sellerId, group.sellerName)
-                                        cartRepository.addToCart(product, 1)
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.AddShoppingCart,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Pedir", fontSize = 12.sp)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider(modifier = Modifier.padding(horizontal = 14.dp))
+
+                            // Lista de Productos del Puesto con Miniatura y Fallback Inteligente
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                group.products.forEach { product ->
+                                    val catName = categoriesList.find { it.id == product.categoryId }?.name
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable {
+                                                selectedProductForDetail = Pair(product, group)
+                                            }
+                                            .padding(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        // Miniatura con degradado pastel y emoji por categoría si imageUrl es null
+                                        ValleGoProductImage(
+                                            imageUrl = product.imageUrl,
+                                            categoryName = catName,
+                                            productName = product.name,
+                                            modifier = Modifier.size(64.dp)
+                                        )
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = product.name,
+                                                fontWeight = FontWeight.Bold,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                maxLines = 1
+                                            )
+                                            if (!product.description.isNullOrBlank()) {
+                                                Text(
+                                                    text = product.description,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "S/ %.2f".format(product.price),
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = Color(0xFF003366),
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                                if (product.stock in 1..3) {
+                                                    Text(
+                                                        text = "¡Solo ${product.stock}!",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = Color(0xFFC8102E),
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        FilledTonalButton(
+                                            onClick = {
+                                                selectedProductForDetail = Pair(product, group)
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.AddShoppingCart,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Pedir", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -357,5 +625,4 @@ data class StoreCatalogGroup(
             }
         }
     }
-}
 }

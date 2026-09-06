@@ -249,4 +249,50 @@ class BuyerSellerFlowVerificationTest {
         assertTrue(cartRepository.items.value.isEmpty())
         assertTrue(orderRepository.getOrdersForBuyer("buyer-1").getOrNull()?.isEmpty() == true)
     }
+
+    @Test
+    fun testCancelOrderByBuyer_cancelsOrderAndPendingSuborders() = runTest {
+        val sub1 = SubOrder(id = "sub-c1", orderId = "order-cancel-buyer", sellerId = "seller-a", subtotalAmount = 15.0, status = SubOrderStatus.PENDIENTE)
+        val order = Order(
+            id = "order-cancel-buyer",
+            buyerId = "buyer-1",
+            meetingPointId = "mp-1",
+            scheduledTime = "13:00",
+            totalAmount = 15.0,
+            status = OrderStatus.PENDIENTE,
+            subOrders = listOf(sub1)
+        )
+        orderRepository.placeOrder(order)
+
+        val cancelResult = orderRepository.cancelOrderByBuyer("order-cancel-buyer")
+        assertTrue(cancelResult.isSuccess)
+
+        val orders = orderRepository.observeOrdersForBuyer("buyer-1").first()
+        val cancelledOrder = orders.first { it.id == "order-cancel-buyer" }
+        assertEquals(OrderStatus.CANCELADA, cancelledOrder.status)
+        assertEquals(SubOrderStatus.CANCELADO, cancelledOrder.subOrders.first().status)
+    }
+
+    @Test
+    fun testMarkBuyerNoShow_marksSuborderAsNotDeliveredAndRecalculates() = runTest {
+        val sub1 = SubOrder(id = "sub-ns1", orderId = "order-ns", sellerId = "seller-a", subtotalAmount = 20.0, status = SubOrderStatus.LISTO)
+        val order = Order(
+            id = "order-ns",
+            buyerId = "buyer-1",
+            meetingPointId = "mp-1",
+            scheduledTime = "14:00",
+            totalAmount = 20.0,
+            status = OrderStatus.EN_PROCESO,
+            subOrders = listOf(sub1)
+        )
+        orderRepository.placeOrder(order)
+
+        val result = orderRepository.markBuyerNoShow("sub-ns1", "No se presentó al patio central")
+        assertTrue(result.isSuccess)
+        assertEquals(SubOrderStatus.NO_ENTREGADO, result.getOrNull()?.status)
+
+        val sellerSubs = orderRepository.observeSubOrdersForSeller("seller-a").first()
+        val sub = sellerSubs.first { it.id == "sub-ns1" }
+        assertEquals(SubOrderStatus.NO_ENTREGADO, sub.status)
+    }
 }

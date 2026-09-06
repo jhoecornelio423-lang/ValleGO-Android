@@ -1,4 +1,4 @@
-﻿package com.example.vallego.domain.usecase
+package com.example.vallego.domain.usecase
 
 import com.example.vallego.domain.model.*
 import java.util.UUID
@@ -47,6 +47,7 @@ class CreateOrderWithSubordersUseCase {
             totalAmount = cartResult.grandTotal,
             status = OrderStatus.PENDIENTE,
             subOrders = subOrders,
+            paymentMethod = paymentMethod,
             notes = notes
         )
     }

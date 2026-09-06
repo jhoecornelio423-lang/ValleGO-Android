@@ -6,6 +6,8 @@ import com.example.vallego.domain.model.UserProfile
 import com.example.vallego.domain.repository.ProductRepository
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.storage.Storage
+import io.github.jan.supabase.storage.upload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -18,8 +20,35 @@ data class ProductInsertDto(
     @kotlinx.serialization.SerialName("description") val description: String,
     @kotlinx.serialization.SerialName("price") val price: Double,
     @kotlinx.serialization.SerialName("stock") val stock: Int,
+    @kotlinx.serialization.SerialName("image_url") val imageUrl: String? = null,
     @kotlinx.serialization.SerialName("is_active") val isActive: Boolean = true,
     @kotlinx.serialization.SerialName("pickup_location") val pickupLocation: String = "Campus Los Olivos"
+)
+
+@kotlinx.serialization.Serializable
+data class ProductUpdateDto(
+    @kotlinx.serialization.SerialName("name") val name: String,
+    @kotlinx.serialization.SerialName("description") val description: String?,
+    @kotlinx.serialization.SerialName("price") val price: Double,
+    @kotlinx.serialization.SerialName("stock") val stock: Int,
+    @kotlinx.serialization.SerialName("category_id") val categoryId: String?,
+    @kotlinx.serialization.SerialName("image_url") val imageUrl: String?,
+    @kotlinx.serialization.SerialName("is_active") val isActive: Boolean,
+    @kotlinx.serialization.SerialName("pickup_location") val pickupLocation: String?
+)
+
+@kotlinx.serialization.Serializable
+data class SellerBusinessProfileUpdateDto(
+    @kotlinx.serialization.SerialName("business_name") val businessName: String?,
+    @kotlinx.serialization.SerialName("business_status") val businessStatus: String,
+    @kotlinx.serialization.SerialName("business_description") val businessDescription: String?,
+    @kotlinx.serialization.SerialName("business_category") val businessCategory: String?,
+    @kotlinx.serialization.SerialName("business_location") val businessLocation: String?,
+    @kotlinx.serialization.SerialName("open_time") val openTime: String?,
+    @kotlinx.serialization.SerialName("close_time") val closeTime: String?,
+    @kotlinx.serialization.SerialName("banner_url") val bannerUrl: String?,
+    @kotlinx.serialization.SerialName("avatar_url") val avatarUrl: String?,
+    @kotlinx.serialization.SerialName("accepting_orders") val acceptingOrders: Boolean
 )
 
 @kotlinx.serialization.Serializable
@@ -35,7 +64,8 @@ data class ProductStockAndActiveDto(
 
 class ProductRepositoryImpl(
     private val postgrest: Postgrest,
-    private val auth: Auth
+    private val auth: Auth,
+    private val storage: Storage? = null
 ) : ProductRepository {
 
     private fun isValidUUID(value: String): Boolean {
@@ -115,6 +145,7 @@ class ProductRepositoryImpl(
                 description = desc.trim(),
                 price = product.price,
                 stock = product.stock,
+                imageUrl = product.imageUrl,
                 isActive = product.isActive && product.stock > 0,
                 pickupLocation = pickup
             )
@@ -124,6 +155,56 @@ class ProductRepositoryImpl(
         } catch (e: Exception) {
             android.util.Log.e("ProductRepo", "Error al crear producto: ${e.message}", e)
             Result.failure(e)
+        }
+    }
+
+    override suspend fun updateProduct(product: Product): Result<Product> = withContext(Dispatchers.IO) {
+        try {
+            val dto = ProductUpdateDto(
+                name = product.name.trim(),
+                description = product.description?.trim(),
+                price = product.price,
+                stock = maxOf(0, product.stock),
+                categoryId = product.categoryId,
+                imageUrl = product.imageUrl,
+                isActive = product.isActive && product.stock > 0,
+                pickupLocation = product.pickupLocation
+            )
+            postgrest.from("products").update(dto) {
+                filter {
+                    eq("id", product.id)
+                }
+            }
+            android.util.Log.d("ProductRepo", "Producto actualizado exitosamente: ${product.name} (id=${product.id})")
+            Result.success(product)
+        } catch (e: Exception) {
+            android.util.Log.e("ProductRepo", "Error al actualizar producto: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun deleteProduct(productId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            postgrest.from("products").delete {
+                filter {
+                    eq("id", productId)
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            // Si hay restricción por órdenes históricas, realizar baja lógica (soft-delete)
+            try {
+                postgrest.from("products").update(
+                    mapOf("is_active" to false, "stock" to 0)
+                ) {
+                    filter {
+                        eq("id", productId)
+                    }
+                }
+                Result.success(Unit)
+            } catch (inner: Exception) {
+                Result.failure(e)
+            }
         }
     }
 
@@ -185,6 +266,56 @@ class ProductRepositoryImpl(
             Result.success(Unit)
         } catch (e: Exception) {
             android.util.Log.e("ProductRepo", "Error al actualizar accepting_orders: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun updateBusinessProfile(profile: UserProfile): Result<UserProfile> = withContext(Dispatchers.IO) {
+        try {
+            val targetId = profile.id.ifBlank { auth.currentUserOrNull()?.id ?: "" }
+            if (targetId.isBlank()) return@withContext Result.failure(IllegalStateException("No se pudo identificar la cuenta del vendedor."))
+
+            val dto = SellerBusinessProfileUpdateDto(
+                businessName = profile.businessName?.trim(),
+                businessStatus = profile.businessStatus,
+                businessDescription = profile.businessDescription?.trim(),
+                businessCategory = profile.businessCategory?.trim(),
+                businessLocation = profile.businessLocation?.trim(),
+                openTime = profile.openTime,
+                closeTime = profile.closeTime,
+                bannerUrl = profile.bannerUrl,
+                avatarUrl = profile.avatarUrl,
+                acceptingOrders = profile.acceptingOrders
+            )
+            postgrest.from("profiles").update(dto) {
+                filter {
+                    eq("id", targetId)
+                }
+            }
+            android.util.Log.d("ProductRepo", "Perfil de puesto actualizado exitosamente: ${profile.businessName}")
+            Result.success(profile.copy(id = targetId))
+        } catch (e: Exception) {
+            android.util.Log.e("ProductRepo", "Error al actualizar perfil de negocio: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun uploadImage(
+        bucket: String,
+        path: String,
+        bytes: ByteArray,
+        mimeType: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val storageClient = storage ?: return@withContext Result.failure(IllegalStateException("Servicio de almacenamiento no inicializado"))
+            val bucketApi = storageClient.from(bucket)
+            bucketApi.upload(path = path, data = bytes) {
+                upsert = true
+            }
+            val publicUrl = bucketApi.publicUrl(path)
+            Result.success(publicUrl)
+        } catch (e: Exception) {
+            android.util.Log.e("ProductRepo", "Error al subir imagen a $bucket: ${e.message}", e)
             Result.failure(e)
         }
     }

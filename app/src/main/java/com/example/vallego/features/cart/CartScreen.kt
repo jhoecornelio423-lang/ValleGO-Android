@@ -452,19 +452,43 @@ fun CartScreen(
                             FilterChip(
                                 selected = uiState.selectedPaymentMethod == PaymentMethod.YAPE,
                                 onClick = { viewModel.selectPaymentMethod(PaymentMethod.YAPE) },
-                                label = { Text("Yape") },
+                                label = { Text("Yape", fontWeight = if (uiState.selectedPaymentMethod == PaymentMethod.YAPE) FontWeight.Bold else FontWeight.Normal) },
+                                leadingIcon = if (uiState.selectedPaymentMethod == PaymentMethod.YAPE) {
+                                    { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                } else null,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF6A1B9A),
+                                    selectedLabelColor = Color.White,
+                                    selectedLeadingIconColor = Color.White
+                                ),
                                 modifier = Modifier.weight(1f)
                             )
                             FilterChip(
                                 selected = uiState.selectedPaymentMethod == PaymentMethod.PLIN,
                                 onClick = { viewModel.selectPaymentMethod(PaymentMethod.PLIN) },
-                                label = { Text("Plin") },
+                                label = { Text("Plin", fontWeight = if (uiState.selectedPaymentMethod == PaymentMethod.PLIN) FontWeight.Bold else FontWeight.Normal) },
+                                leadingIcon = if (uiState.selectedPaymentMethod == PaymentMethod.PLIN) {
+                                    { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                } else null,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF00796B),
+                                    selectedLabelColor = Color.White,
+                                    selectedLeadingIconColor = Color.White
+                                ),
                                 modifier = Modifier.weight(1f)
                             )
                             FilterChip(
                                 selected = uiState.selectedPaymentMethod == PaymentMethod.EFECTIVO,
                                 onClick = { viewModel.selectPaymentMethod(PaymentMethod.EFECTIVO) },
-                                label = { Text("Efectivo") },
+                                label = { Text("Efectivo", fontWeight = if (uiState.selectedPaymentMethod == PaymentMethod.EFECTIVO) FontWeight.Bold else FontWeight.Normal) },
+                                leadingIcon = if (uiState.selectedPaymentMethod == PaymentMethod.EFECTIVO) {
+                                    { Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                                } else null,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF003366),
+                                    selectedLabelColor = Color.White,
+                                    selectedLeadingIconColor = Color.White
+                                ),
                                 modifier = Modifier.weight(1f)
                             )
                         }

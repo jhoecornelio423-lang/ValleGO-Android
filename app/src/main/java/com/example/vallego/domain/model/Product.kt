@@ -12,7 +12,7 @@ data class Product(
     @SerialName("description") val description: String? = null,
     val price: Double,
     val stock: Int,
-    @kotlinx.serialization.Transient val imageUrl: String? = null,
+    @SerialName("image_url") val imageUrl: String? = null,
     @SerialName("is_active") val isActive: Boolean = true,
     @SerialName("pickup_location") val pickupLocation: String? = null,
     @SerialName("created_at") val createdAt: String? = null

@@ -13,5 +13,8 @@ interface OrderRepository {
     fun observeOrdersForBuyer(buyerId: String): Flow<List<Order>>
     fun observeSubOrdersForSeller(sellerId: String): Flow<List<SubOrder>>
     suspend fun updateSubOrderStatus(subOrderId: String, newStatus: SubOrderStatus, rejectionReason: String? = null): Result<SubOrder>
+    suspend fun cancelOrderByBuyer(orderId: String): Result<Unit>
+    suspend fun markBuyerNoShow(subOrderId: String, reason: String? = null): Result<SubOrder>
+    suspend fun expirePendingSuborders(): Result<Int>
     fun clearCache()
 }

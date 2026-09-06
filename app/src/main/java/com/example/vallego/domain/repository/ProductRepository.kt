@@ -11,6 +11,10 @@ interface ProductRepository {
     suspend fun createProduct(product: Product): Result<Product>
     suspend fun toggleProductActive(productId: String, isActive: Boolean): Result<Unit>
     suspend fun updateProductStock(productId: String, newStock: Int): Result<Unit>
+    suspend fun updateProduct(product: Product): Result<Product>
+    suspend fun deleteProduct(productId: String): Result<Unit>
     suspend fun getSellerProfiles(): Result<List<UserProfile>>
     suspend fun updateSellerAcceptingOrders(sellerId: String, accepting: Boolean): Result<Unit>
+    suspend fun updateBusinessProfile(profile: UserProfile): Result<UserProfile>
+    suspend fun uploadImage(bucket: String, path: String, bytes: ByteArray, mimeType: String = "image/jpeg"): Result<String>
 }

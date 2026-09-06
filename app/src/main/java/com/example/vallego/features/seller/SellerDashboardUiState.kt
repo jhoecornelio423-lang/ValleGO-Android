@@ -15,7 +15,8 @@ enum class SellerOrderFilter {
 
 enum class SellerTab {
     PEDIDOS,
-    PRODUCTOS
+    PRODUCTOS,
+    MI_PUESTO
 }
 
 data class SellerDashboardUiState(
@@ -24,15 +25,20 @@ data class SellerDashboardUiState(
     val successMessage: String? = null,
     val isAcceptingOrders: Boolean = true,
     val selectedTab: SellerTab = SellerTab.PEDIDOS,
+    val sellerProfile: com.example.vallego.domain.model.UserProfile? = null,
     val subOrders: List<SubOrder> = emptyList(),
     val products: List<com.example.vallego.domain.model.Product> = emptyList(),
     val categories: List<com.example.vallego.domain.model.Category> = emptyList(),
     val showAddProductDialog: Boolean = false,
+    val selectedProductForEdit: com.example.vallego.domain.model.Product? = null,
     val isSavingProduct: Boolean = false,
+    val isSavingProfile: Boolean = false,
+    val isUploadingAsset: Boolean = false,
     val selectedProductForStockEdit: com.example.vallego.domain.model.Product? = null,
     val selectedFilter: SellerOrderFilter = SellerOrderFilter.TODOS,
     val selectedSubOrderForRejection: SubOrder? = null,
     val selectedSubOrderForDelivery: SubOrder? = null,
+    val selectedSubOrderForNoShow: SubOrder? = null,
     val totalSubOrdersToday: Int = 0,
     val pendingCount: Int = 0,
     val inPreparationCount: Int = 0,
@@ -47,6 +53,6 @@ data class SellerDashboardUiState(
             SellerOrderFilter.EN_PREPARACION -> subOrders.filter { it.status == SubOrderStatus.ACEPTADO || it.status == SubOrderStatus.EN_PREPARACION }
             SellerOrderFilter.LISTOS -> subOrders.filter { it.status == SubOrderStatus.LISTO || it.status == SubOrderStatus.ESPERANDO_ENTREGA }
             SellerOrderFilter.COMPLETADOS -> subOrders.filter { it.status == SubOrderStatus.COMPLETADO || it.status == SubOrderStatus.PAGO_CONFIRMADO }
-            SellerOrderFilter.RECHAZADOS -> subOrders.filter { it.status == SubOrderStatus.RECHAZADO || it.status == SubOrderStatus.CANCELADO }
+            SellerOrderFilter.RECHAZADOS -> subOrders.filter { it.status == SubOrderStatus.RECHAZADO || it.status == SubOrderStatus.CANCELADO || it.status == SubOrderStatus.NO_ENTREGADO }
         }
 }
