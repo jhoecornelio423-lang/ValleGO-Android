@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -116,6 +117,11 @@ class OrderRepositoryImpl(
 
     private val productNameCache = ConcurrentHashMap<String, String>()
     private val profileNameCache = ConcurrentHashMap<String, String>()
+    private val jsonParser = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+        isLenient = true
+    }
 
     override fun clearCache() {
         _ordersFlow.value = emptyList()
@@ -154,7 +160,7 @@ class OrderRepositoryImpl(
                 val orderId = if (isValidUUID(order.id)) order.id else UUID.randomUUID().toString()
                 val paymentMethodName = order.subOrders.firstOrNull()?.paymentMethod?.name ?: PaymentMethod.EFECTIVO.name
 
-                val response = postgrest.rpc(
+                val rpcResult = postgrest.rpc(
                     function = "checkout_order_atomic",
                     parameters = buildJsonObject {
                         put("p_order_id", orderId)
@@ -165,7 +171,8 @@ class OrderRepositoryImpl(
                         put("p_notes", order.notes)
                         put("p_suborders", subordersArray)
                     }
-                ).decodeSingle<CheckoutResponseDto>()
+                )
+                val response = jsonParser.decodeFromString<CheckoutResponseDto>(rpcResult.data)
 
                 if (!response.success) {
                     return@withContext Result.failure(Exception(response.message ?: "No se pudo confirmar el pedido en el servidor."))
@@ -415,21 +422,53 @@ class OrderRepositoryImpl(
         while (true) {
             try {
                 if (postgrest != null && isValidUUID(sellerId)) {
-                    val remoteSubOrders = postgrest.from("sub_orders")
-                        .select {
-                            filter {
-                                eq("seller_id", sellerId)
+                    val remoteSubOrders = try {
+                        postgrest.from("sub_orders")
+                            .select {
+                                filter {
+                                    eq("seller_id", sellerId)
+                                }
                             }
-                        }
-                        .decodeList<RemoteSubOrderDto>()
-                        .sortedByDescending { it.createdAt }
+                            .decodeList<RemoteSubOrderDto>()
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
 
-                    if (remoteSubOrders.isNotEmpty()) {
-                        val subOrderIds = remoteSubOrders.map { it.id }
+                    val remoteLegacyOrders = try {
+                        postgrest.from("orders")
+                            .select {
+                                filter {
+                                    eq("seller_id", sellerId)
+                                }
+                            }
+                            .decodeList<RemoteOrderDto>()
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+
+                    val existingSubOrderOrderIds = remoteSubOrders.map { it.orderId }.toSet()
+                    val missingFromSubOrders = remoteLegacyOrders.filter { it.id !in existingSubOrderOrderIds }
+                    val synthesizedSubs = missingFromSubOrders.map { ro ->
+                        RemoteSubOrderDto(
+                            id = ro.id,
+                            orderId = ro.id,
+                            sellerId = ro.sellerId ?: sellerId,
+                            subtotalAmount = ro.totalPrice,
+                            status = ro.status,
+                            paymentMethod = ro.paymentMethod,
+                            createdAt = ro.createdAt,
+                            updatedAt = ro.updatedAt
+                        )
+                    }
+
+                    val combinedSubOrders = (remoteSubOrders + synthesizedSubs).sortedByDescending { it.createdAt }
+
+                    if (combinedSubOrders.isNotEmpty()) {
+                        val parentOrderIds = combinedSubOrders.map { it.orderId }.distinct()
 
                         val remoteItems = try {
                             postgrest.from("order_items")
-                                .select { filter { isIn("sub_order_id", subOrderIds) } }
+                                .select { filter { isIn("order_id", parentOrderIds) } }
                                 .decodeList<RemoteOrderItemDto>()
                         } catch (_: Exception) {
                             emptyList()
@@ -460,10 +499,10 @@ class OrderRepositoryImpl(
                             } catch (_: Exception) {}
                         }
 
-                        val itemsBySubOrder = remoteItems.groupBy { it.subOrderId }
+                        val itemsBySubOrder = remoteItems.groupBy { it.subOrderId ?: it.orderId }
 
-                        val mappedSubOrders = remoteSubOrders.map { rso ->
-                            val sItems = (itemsBySubOrder[rso.id] ?: emptyList()).map { oi ->
+                        val mappedSubOrders = combinedSubOrders.map { rso ->
+                            val sItems = (itemsBySubOrder[rso.id] ?: itemsBySubOrder[rso.orderId] ?: emptyList()).map { oi ->
                                 SubOrderItem(
                                     id = oi.id,
                                     subOrderId = rso.id,
@@ -513,7 +552,7 @@ class OrderRepositoryImpl(
             if (postgrest != null && isValidUUID(subOrderId)) {
                 val remoteStatusStr = mapLocalStatusToRemote(newStatus)
 
-                val response = postgrest.rpc(
+                val rpcResult = postgrest.rpc(
                     function = "update_suborder_status_atomic",
                     parameters = buildJsonObject {
                         put("p_sub_order_id", subOrderId)
@@ -522,7 +561,8 @@ class OrderRepositoryImpl(
                             put("p_rejection_reason", rejectionReason)
                         }
                     }
-                ).decodeSingle<UpdateSuborderStatusResponseDto>()
+                )
+                val response = jsonParser.decodeFromString<UpdateSuborderStatusResponseDto>(rpcResult.data)
 
                 if (!response.success) {
                     return@withContext Result.failure(Exception("No se pudo actualizar el estado del subpedido en el servidor."))

@@ -12,6 +12,7 @@ import android.os.PowerManager
 import android.util.Log
 import com.example.vallego.data.repository.RemoteOrderDto
 import com.example.vallego.data.repository.RemoteOrderItemDto
+import com.example.vallego.data.repository.RemoteSubOrderDto
 import com.example.vallego.data.repository.ProductBasicDto
 import com.example.vallego.domain.model.UserProfile
 import io.github.jan.supabase.auth.Auth
@@ -84,11 +85,34 @@ class ValleGoPushService : Service(), KoinComponent {
         prefs.edit().putBoolean(eventKey, true).apply()
     }
 
-    private suspend fun getOrderItemsSummary(orderId: String): String {
+    private suspend fun getOrderItemsSummary(orderId: String, subOrderId: String? = null): String {
         return try {
-            val items = postgrest.from("order_items")
-                .select { filter { eq("order_id", orderId) } }
-                .decodeList<RemoteOrderItemDto>()
+            val items = if (subOrderId != null) {
+                val subItems = try {
+                    postgrest.from("order_items")
+                        .select { filter { eq("sub_order_id", subOrderId) } }
+                        .decodeList<RemoteOrderItemDto>()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                if (subItems.isNotEmpty()) subItems else {
+                    try {
+                        postgrest.from("order_items")
+                            .select { filter { eq("order_id", orderId) } }
+                            .decodeList<RemoteOrderItemDto>()
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                }
+            } else {
+                try {
+                    postgrest.from("order_items")
+                        .select { filter { eq("order_id", orderId) } }
+                        .decodeList<RemoteOrderItemDto>()
+                } catch (_: Exception) {
+                    emptyList()
+                }
+            }
             if (items.isEmpty()) return ""
 
             val missingProductIds = items.map { it.productId }
@@ -160,36 +184,67 @@ class ValleGoPushService : Service(), KoinComponent {
     }
 
     private suspend fun monitorSellerOrders(sellerId: String) {
-        val orders = postgrest.from("orders")
-            .select {
-                filter { eq("seller_id", sellerId) }
-            }
-            .decodeList<RemoteOrderDto>()
+        val subOrders = try {
+            postgrest.from("sub_orders")
+                .select {
+                    filter { eq("seller_id", sellerId) }
+                }
+                .decodeList<RemoteSubOrderDto>()
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        val legacyOrders = try {
+            postgrest.from("orders")
+                .select {
+                    filter { eq("seller_id", sellerId) }
+                }
+                .decodeList<RemoteOrderDto>()
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+        val existingSubOrderOrderIds = subOrders.map { it.orderId }.toSet()
+        val missingFromSubOrders = legacyOrders.filter { it.id !in existingSubOrderOrderIds }
+        val synthesizedSubs = missingFromSubOrders.map { ro ->
+            RemoteSubOrderDto(
+                id = ro.id,
+                orderId = ro.id,
+                sellerId = ro.sellerId ?: sellerId,
+                subtotalAmount = ro.totalPrice,
+                status = ro.status,
+                paymentMethod = ro.paymentMethod,
+                createdAt = ro.createdAt,
+                updatedAt = ro.updatedAt
+            )
+        }
+
+        val allSubs = (subOrders + synthesizedSubs).sortedByDescending { it.createdAt }
 
         if (isSellerFirstRun) {
-            orders.forEach {
+            allSubs.forEach {
                 seenSellerOrderIds.add(it.id)
-                markAsNotified("seller_order_${it.id}")
+                markAsNotified("seller_sub_${it.id}")
             }
             isSellerFirstRun = false
             return
         }
 
-        for (order in orders) {
-            val eventKey = "seller_order_${order.id}"
+        for (sub in allSubs) {
+            val eventKey = "seller_sub_${sub.id}"
             if (isAlreadyNotified(eventKey)) {
-                seenSellerOrderIds.add(order.id)
+                seenSellerOrderIds.add(sub.id)
                 continue
             }
 
-            val isNew = !seenSellerOrderIds.contains(order.id)
-            val isPending = order.status.lowercase() in listOf("pending", "pendiente")
+            val isNew = !seenSellerOrderIds.contains(sub.id)
+            val isPending = sub.status.lowercase() in listOf("pending", "pendiente")
 
             if (isNew && isPending) {
-                seenSellerOrderIds.add(order.id)
+                seenSellerOrderIds.add(sub.id)
                 markAsNotified(eventKey)
-                val itemsSummary = getOrderItemsSummary(order.id)
-                val totalStr = String.format(java.util.Locale.US, "%.2f", order.totalPrice)
+                val itemsSummary = getOrderItemsSummary(orderId = sub.orderId, subOrderId = sub.id)
+                val totalStr = String.format(java.util.Locale.US, "%.2f", sub.subtotalAmount)
                 val messageText = if (itemsSummary.isNotBlank()) {
                     "Has recibido un pedido de $itemsSummary por S/. $totalStr. Toca para atenderlo."
                 } else {
@@ -197,13 +252,13 @@ class ValleGoPushService : Service(), KoinComponent {
                 }
                 ValleGoNotificationHelper.showOrderNotification(
                     context = this@ValleGoPushService,
-                    notificationId = order.id.hashCode(),
+                    notificationId = sub.id.hashCode(),
                     title = "🔔 ¡Nuevo pedido recibido!",
                     message = messageText,
-                    orderId = order.id
+                    orderId = sub.orderId
                 )
             } else {
-                seenSellerOrderIds.add(order.id)
+                seenSellerOrderIds.add(sub.id)
             }
         }
     }
