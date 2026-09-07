@@ -25,6 +25,12 @@ import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.PersonOff
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.CameraAlt
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -32,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import com.example.vallego.ui.components.compressImageUri
+import com.example.vallego.ui.components.isSubOrderExpired
 import java.util.UUID
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -40,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.vallego.domain.model.PaymentMethod
@@ -52,6 +60,7 @@ import com.example.vallego.ui.components.SubOrderCountdownTimerBadge
 import com.example.vallego.ui.components.ValleGoBusinessAvatar
 import com.example.vallego.ui.components.ValleGoBusinessBanner
 import com.example.vallego.ui.components.ValleGoProductImage
+import com.example.vallego.ui.components.ValleGoUserAvatar
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -64,6 +73,7 @@ fun SellerDashboardScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    var showSellerProfileDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(profile.id) {
         viewModel.initialize(profile.id, profile.acceptingOrders, profile.businessLocation)
@@ -778,6 +788,33 @@ fun SellerDashboardScreen(
         )
     }
 
+    if (showSellerProfileDialog) {
+        SellerStoreProfileDialog(
+            profile = profile,
+            sellerProfile = uiState.sellerProfile,
+            isSaving = uiState.isSavingProfile,
+            isUploading = uiState.isUploadingAsset,
+            onDismiss = { showSellerProfileDialog = false },
+            onUploadAsset = { bucket, path, bytes, onUploaded ->
+                viewModel.uploadAsset(bucket, path, bytes, onUploaded)
+            },
+            onSave = { name, status, desc, cat, loc, open, close, banner, avatar, accepting ->
+                viewModel.updateBusinessProfile(
+                    businessName = name,
+                    businessStatus = status,
+                    businessDescription = desc,
+                    businessCategory = cat,
+                    businessLocation = loc,
+                    openTime = open,
+                    closeTime = close,
+                    bannerUrl = banner,
+                    avatarUrl = avatar,
+                    acceptingOrders = accepting
+                )
+            }
+        )
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
@@ -794,25 +831,48 @@ fun SellerDashboardScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = profile.fullName.ifBlank { "Mi Emprendimiento" },
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF003366)
+                    val curProf = uiState.sellerProfile ?: profile
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { showSellerProfileDialog = true }
+                            .padding(vertical = 4.dp, horizontal = 2.dp)
+                    ) {
+                        ValleGoUserAvatar(
+                            avatarUrl = curProf.avatarUrl,
+                            name = curProf.businessName ?: curProf.fullName,
+                            size = 38.dp
                         )
-                        val subtitle = listOfNotNull(
-                            profile.businessDescription?.takeIf { it.isNotBlank() },
-                            profile.businessCategory?.takeIf { it.isNotBlank() },
-                            profile.businessLocation?.takeIf { it.isNotBlank() }
-                        ).firstOrNull() ?: "Emprendimiento Valle-Go"
-                        Text(
-                            text = subtitle,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            val storeDisplayName = (curProf.businessName?.takeIf { it.isNotBlank() } ?: curProf.fullName).ifBlank { "Mi Emprendimiento" }
+                            Text(
+                                text = storeDisplayName,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color(0xFF003366),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            val subtitle = listOfNotNull(
+                                curProf.fullName.takeIf { it.isNotBlank() && it != curProf.businessName },
+                                curProf.businessLocation?.takeIf { it.isNotBlank() } ?: "Campus ${curProf.campus}"
+                            ).joinToString(" • ").ifBlank { "Emprendedor UCV" }
+                            Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showSellerProfileDialog = true }) {
+                        Icon(Icons.Default.Store, contentDescription = "Mi Puesto", tint = Color(0xFF003366))
+                    }
                     IconButton(onClick = onSignOut) {
                         Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Cerrar sesión")
                     }
@@ -863,13 +923,9 @@ fun SellerDashboardScreen(
                 }
             }
 
-            // Selector de Pestañas: Subpedidos vs Mis Productos vs Mi Puesto
+            // Selector de Pestañas: Subpedidos vs Mis Productos
             PrimaryTabRow(
-                selectedTabIndex = when (uiState.selectedTab) {
-                    SellerTab.PEDIDOS -> 0
-                    SellerTab.PRODUCTOS -> 1
-                    SellerTab.MI_PUESTO -> 2
-                },
+                selectedTabIndex = if (uiState.selectedTab == SellerTab.PRODUCTOS) 1 else 0,
                 containerColor = Color.Transparent,
                 contentColor = Color(0xFF003366)
             ) {
@@ -882,11 +938,6 @@ fun SellerDashboardScreen(
                     selected = uiState.selectedTab == SellerTab.PRODUCTOS,
                     onClick = { viewModel.setSelectedTab(SellerTab.PRODUCTOS) },
                     text = { Text("Mis Productos (${uiState.products.size})", fontWeight = FontWeight.Bold) }
-                )
-                Tab(
-                    selected = uiState.selectedTab == SellerTab.MI_PUESTO,
-                    onClick = { viewModel.setSelectedTab(SellerTab.MI_PUESTO) },
-                    text = { Text("Mi Puesto", fontWeight = FontWeight.Bold) }
                 )
             }
 
@@ -1080,31 +1131,7 @@ fun SellerDashboardScreen(
                         }
                     }
                 }
-                SellerTab.MI_PUESTO -> {
-                    SellerStoreProfileTab(
-                        profile = profile,
-                        sellerProfile = uiState.sellerProfile,
-                        isSaving = uiState.isSavingProfile,
-                        isUploading = uiState.isUploadingAsset,
-                        onUploadAsset = { bucket, path, bytes, onUploaded ->
-                            viewModel.uploadAsset(bucket, path, bytes, onUploaded)
-                        },
-                        onSave = { name, status, desc, cat, loc, open, close, banner, avatar, accepting ->
-                            viewModel.updateBusinessProfile(
-                                businessName = name,
-                                businessStatus = status,
-                                businessDescription = desc,
-                                businessCategory = cat,
-                                businessLocation = loc,
-                                openTime = open,
-                                closeTime = close,
-                                bannerUrl = banner,
-                                avatarUrl = avatar,
-                                acceptingOrders = accepting
-                            )
-                        }
-                    )
-                }
+                else -> {}
             }
         }
     }
@@ -1153,6 +1180,16 @@ fun SellerSubOrderCard(
     onExpired: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var isExpiredState by remember(subOrder.id, subOrder.createdAt) {
+        mutableStateOf(isSubOrderExpired(subOrder.createdAt))
+    }
+
+    LaunchedEffect(isExpiredState) {
+        if (isExpiredState && subOrder.status == SubOrderStatus.PENDIENTE) {
+            onExpired()
+        }
+    }
+
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -1187,14 +1224,17 @@ fun SellerSubOrderCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    if (subOrder.status == SubOrderStatus.PENDIENTE) {
+                    if (subOrder.status == SubOrderStatus.PENDIENTE && !isExpiredState) {
                         SubOrderCountdownTimerBadge(
                             createdAtIso = subOrder.createdAt,
                             status = subOrder.status,
-                            onExpired = onExpired
+                            onExpired = {
+                                isExpiredState = true
+                                onExpired()
+                            }
                         )
                     }
-                    StatusBadge(status = subOrder.status)
+                    StatusBadge(status = if (isExpiredState && subOrder.status == SubOrderStatus.PENDIENTE) SubOrderStatus.RECHAZADO else subOrder.status)
                 }
             }
 
@@ -1269,20 +1309,40 @@ fun SellerSubOrderCard(
 
                 when (subOrder.status) {
                     SubOrderStatus.PENDIENTE -> {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(
-                                onClick = onOpenRejection,
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFC8102E)),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        if (isExpiredState) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Text("Rechazar")
+                                Icon(
+                                    imageVector = Icons.Default.Schedule,
+                                    contentDescription = null,
+                                    tint = Color(0xFFC8102E),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "⏰ Cancelado automáticamente por tiempo agotado (15 min)",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFC8102E)
+                                )
                             }
-                            Button(
-                                onClick = onAccept,
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
-                            ) {
-                                Text("Aceptar")
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(
+                                    onClick = onOpenRejection,
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFC8102E)),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Rechazar")
+                                }
+                                Button(
+                                    onClick = onAccept,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                ) {
+                                    Text("Aceptar")
+                                }
                             }
                         }
                     }
@@ -1559,11 +1619,12 @@ fun ProductCard(
 }
 
 @Composable
-fun SellerStoreProfileTab(
+fun SellerStoreProfileDialog(
     profile: UserProfile,
     sellerProfile: UserProfile?,
     isSaving: Boolean,
     isUploading: Boolean = false,
+    onDismiss: () -> Unit,
     onUploadAsset: ((bucket: String, path: String, bytes: ByteArray, onUploaded: (String) -> Unit) -> Unit)? = null,
     onSave: (
         businessName: String,
@@ -1576,11 +1637,12 @@ fun SellerStoreProfileTab(
         bannerUrl: String?,
         avatarUrl: String?,
         acceptingOrders: Boolean
-    ) -> Unit,
-    modifier: Modifier = Modifier
+    ) -> Unit
 ) {
     val context = LocalContext.current
     val activeProfile = sellerProfile ?: profile
+    var isEditMode by remember { mutableStateOf(false) }
+
     var businessName by remember(activeProfile.id, activeProfile.businessName) {
         mutableStateOf(activeProfile.businessName ?: activeProfile.fullName)
     }
@@ -1647,289 +1709,451 @@ fun SellerStoreProfileTab(
         }
     }
 
-    val scrollState = rememberScrollState()
-
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Vista previa de cabecera con Banner y Logo comercial interactivos
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                // Banner interactivo: Toca para cambiar foto
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(135.dp)
-                        .clickable { bannerPickerLauncher.launch("image/*") }
-                ) {
-                    ValleGoBusinessBanner(
-                        bannerUrl = bannerUrl.takeIf { it.isNotBlank() },
-                        storeName = businessName,
-                        modifier = Modifier.fillMaxSize()
-                    )
-
-                    // Botón flotante para cambiar portada
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.55f),
-                        shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(10.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            if (isUploadingBanner) {
-                                CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
-                                Text("Subiendo...", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            } else {
-                                Icon(Icons.Default.PhotoCamera, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-                                Text("Cambiar portada", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-
-                // Logo/Avatar interactivo: Toca para cambiar logo
-                Box(
-                    modifier = Modifier
-                        .padding(start = 16.dp, top = 85.dp)
-                        .clickable { avatarPickerLauncher.launch("image/*") }
-                ) {
-                    ValleGoBusinessAvatar(
-                        avatarUrl = avatarUrl.takeIf { it.isNotBlank() },
-                        storeName = businessName,
-                        size = 68.dp
-                    )
-                    Surface(
-                        color = Color(0xFF003366),
-                        shape = CircleShape,
-                        shadowElevation = 3.dp,
-                        modifier = Modifier
-                            .size(24.dp)
-                            .align(Alignment.BottomEnd)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            if (isUploadingAvatar) {
-                                CircularProgressIndicator(modifier = Modifier.size(12.dp), color = Color.White, strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.PhotoCamera, contentDescription = "Cambiar logo", tint = Color.White, modifier = Modifier.size(14.dp))
-                            }
-                        }
-                    }
-                }
+    AlertDialog(
+        onDismissRequest = {
+            if (isEditMode) {
+                businessName = activeProfile.businessName ?: activeProfile.fullName
+                description = activeProfile.businessDescription.orEmpty()
+                category = activeProfile.businessCategory.orEmpty()
+                location = activeProfile.businessLocation ?: activeProfile.campus
+                openTime = activeProfile.openTime ?: "08:00"
+                closeTime = activeProfile.closeTime ?: "18:00"
+                bannerUrl = activeProfile.bannerUrl.orEmpty()
+                avatarUrl = activeProfile.avatarUrl.orEmpty()
+                businessStatus = activeProfile.businessStatus.ifBlank { "ABIERTO" }
+                acceptingOrders = activeProfile.acceptingOrders
+                isEditMode = false
+            } else {
+                onDismiss()
             }
-            Spacer(modifier = Modifier.height(28.dp))
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = businessName.ifBlank { "Nombre del Puesto" },
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF003366)
-                    )
+        },
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (isEditMode) "Editar Mi Puesto" else "Mi Puesto Comercial",
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF003366),
+                    style = MaterialTheme.typography.titleLarge
+                )
+                if (isEditMode) {
+                    Surface(
+                        color = Color(0xFFE3F2FD),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "Modo Edición",
+                            color = Color(0xFF0284C7),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                } else {
                     StoreStatusBadge(status = businessStatus, acceptingOrders = acceptingOrders)
                 }
-                if (description.isNotBlank()) {
-                    Text(
-                        text = description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "📍 $location  •  🕒 $openTime - $closeTime",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
-        }
-
-        // Selector de 4 Estados del Puesto
-        Text(
-            text = "Estado Actual del Puesto",
-            fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.titleSmall,
-            color = Color(0xFF003366)
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            val states = listOf(
-                "ABIERTO" to "🟢 Abierto",
-                "SATURADO" to "🟠 Saturado",
-                "PAUSADO" to "🟡 Pausado",
-                "CERRADO" to "⚪ Cerrado"
-            )
-            states.forEach { (statusKey, label) ->
-                val isSelected = businessStatus.equals(statusKey, ignoreCase = true)
-                OutlinedButton(
-                    onClick = {
-                        businessStatus = statusKey
-                        if (statusKey == "CERRADO") acceptingOrders = false
-                        if (statusKey == "ABIERTO" || statusKey == "SATURADO") acceptingOrders = true
-                    },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = if (isSelected) Color(0xFF003366) else Color.Transparent,
-                        contentColor = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
-                    ),
-                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Cabecera: Banner y Avatar
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
-                    Text(label, fontSize = 10.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        // Banner
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .then(
+                                    if (isEditMode) Modifier.clickable { bannerPickerLauncher.launch("image/*") }
+                                    else Modifier
+                                )
+                        ) {
+                            ValleGoBusinessBanner(
+                                bannerUrl = bannerUrl.takeIf { it.isNotBlank() },
+                                storeName = businessName,
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            if (isEditMode) {
+                                Surface(
+                                    color = Color.Black.copy(alpha = 0.6f),
+                                    shape = RoundedCornerShape(20.dp),
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        if (isUploadingBanner) {
+                                            CircularProgressIndicator(modifier = Modifier.size(12.dp), color = Color.White, strokeWidth = 2.dp)
+                                            Text("Subiendo...", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        } else {
+                                            Icon(Icons.Default.PhotoCamera, contentDescription = null, tint = Color.White, modifier = Modifier.size(12.dp))
+                                            Text("Cambiar portada", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Logo / Avatar
+                        Box(
+                            modifier = Modifier
+                                .padding(start = 14.dp, top = 72.dp)
+                                .then(
+                                    if (isEditMode) Modifier.clickable { avatarPickerLauncher.launch("image/*") }
+                                    else Modifier
+                                )
+                        ) {
+                            ValleGoBusinessAvatar(
+                                avatarUrl = avatarUrl.takeIf { it.isNotBlank() },
+                                storeName = businessName,
+                                size = 64.dp
+                            )
+                            if (isEditMode) {
+                                Surface(
+                                    color = Color(0xFF003366),
+                                    shape = CircleShape,
+                                    shadowElevation = 3.dp,
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .align(Alignment.BottomEnd)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        if (isUploadingAvatar) {
+                                            CircularProgressIndicator(modifier = Modifier.size(12.dp), color = Color.White, strokeWidth = 2.dp)
+                                        } else {
+                                            Icon(Icons.Default.PhotoCamera, contentDescription = "Cambiar logo", tint = Color.White, modifier = Modifier.size(14.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
+                        Text(
+                            text = businessName.ifBlank { "Nombre del Puesto" },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF003366)
+                        )
+                        Text(
+                            text = "👨‍🍳 Responsable: ${activeProfile.fullName}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                if (!isEditMode) {
+                    // MODO LECTURA (VISTA LIMPIA SIN EDICIÓN DIRECTA)
+                    if (businessStatus == "SATURADO") {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "⚠️ Modo Saturado activo: Tus clientes ven un aviso de alta demanda.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFB45309),
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    } else if (businessStatus == "PAUSADO") {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFFBEB)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "⏸️ Modo Pausado: Las compras están deshabilitadas temporalmente.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFD97706),
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    } else if (businessStatus == "CERRADO") {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "🚫 Puesto Cerrado: No visible para pedidos en catálogo.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFC8102E),
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider()
+
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SellerProfileDetailRow(
+                            icon = Icons.Default.Description,
+                            label = "Descripción",
+                            value = description.ifBlank { "Sin descripción detallada registrada." }
+                        )
+                        SellerProfileDetailRow(
+                            icon = Icons.Default.Category,
+                            label = "Giro comercial / Categoría",
+                            value = category.ifBlank { "Comidas / Varios" }
+                        )
+                        SellerProfileDetailRow(
+                            icon = Icons.Default.LocationOn,
+                            label = "Ubicación en campus",
+                            value = location.ifBlank { "Campus ${activeProfile.campus}" }
+                        )
+                        SellerProfileDetailRow(
+                            icon = Icons.Default.Schedule,
+                            label = "Horario de atención",
+                            value = "$openTime - $closeTime"
+                        )
+                        SellerProfileDetailRow(
+                            icon = Icons.Default.Store,
+                            label = "Recepción de pedidos",
+                            value = if (acceptingOrders) "🟢 Aceptando pedidos activamente" else "🔴 Pedidos desactivados"
+                        )
+                    }
+                } else {
+                    // MODO EDICIÓN (CAMPOS EDITABLES AL PULSAR EDITAR)
+                    Text(
+                        text = "Estado Operativo del Puesto",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color(0xFF003366)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val states = listOf(
+                            "ABIERTO" to "🟢 Abierto",
+                            "SATURADO" to "🟠 Saturado",
+                            "PAUSADO" to "🟡 Pausado",
+                            "CERRADO" to "⚪ Cerrado"
+                        )
+                        states.forEach { (statusKey, label) ->
+                            val isSelected = businessStatus.equals(statusKey, ignoreCase = true)
+                            OutlinedButton(
+                                onClick = {
+                                    businessStatus = statusKey
+                                    if (statusKey == "CERRADO") acceptingOrders = false
+                                    if (statusKey == "ABIERTO" || statusKey == "SATURADO") acceptingOrders = true
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (isSelected) Color(0xFF003366) else Color.Transparent,
+                                    contentColor = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                                ),
+                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp)
+                            ) {
+                                Text(label, fontSize = 10.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                            }
+                        }
+                    }
+
+                    if (businessStatus == "SATURADO") {
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "⚠️ Modo Saturado: Los compradores verán un aviso de alta demanda indicando que su pedido puede tardar un poco más.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFB45309),
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = businessName,
+                        onValueChange = { businessName = it },
+                        label = { Text("Nombre Comercial del Puesto *") },
+                        placeholder = { Text("Ej. El Rincón del Sabor UCV") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+
+                    OutlinedTextField(
+                        value = description,
+                        onValueChange = { description = it },
+                        label = { Text("Descripción del Negocio") },
+                        placeholder = { Text("Ej. Hamburguesas artesanales, triples y jugos") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 3
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = category,
+                            onValueChange = { category = it },
+                            label = { Text("Giro / Categoría") },
+                            placeholder = { Text("Comidas / Snacks") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = location,
+                            onValueChange = { location = it },
+                            label = { Text("Ubicación en campus") },
+                            placeholder = { Text("Pabellón A / Cafetería") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = openTime,
+                            onValueChange = { openTime = it },
+                            label = { Text("Apertura") },
+                            placeholder = { Text("08:00 AM") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                        OutlinedTextField(
+                            value = closeTime,
+                            onValueChange = { closeTime = it },
+                            label = { Text("Cierre") },
+                            placeholder = { Text("06:00 PM") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true
+                        )
+                    }
+
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.PhotoCamera, contentDescription = null, tint = Color(0xFF003366), modifier = Modifier.size(20.dp))
+                            Text(
+                                text = "💡 Toca la portada o el logo arriba para cambiarlos desde tu celular.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
-        }
-
-        if (businessStatus == "SATURADO") {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = "⚠️ Modo Saturado: Los compradores verán un aviso de alta demanda indicando que su pedido puede tardar un poco más.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFFB45309),
-                    modifier = Modifier.padding(12.dp)
-                )
-            }
-        }
-
-        // Datos del puesto
-        Text(
-            text = "Información del Emprendimiento",
-            fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.titleSmall,
-            color = Color(0xFF003366)
-        )
-
-        OutlinedTextField(
-            value = businessName,
-            onValueChange = { businessName = it },
-            label = { Text("Nombre Comercial del Puesto *") },
-            placeholder = { Text("Ej. El Rincón del Sabor UCV") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-
-        OutlinedTextField(
-            value = description,
-            onValueChange = { description = it },
-            label = { Text("Descripción del Negocio") },
-            placeholder = { Text("Ej. Hamburguesas artesanales, triples y jugos recién hechos") },
-            modifier = Modifier.fillMaxWidth(),
-            maxLines = 3
-        )
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = category,
-                onValueChange = { category = it },
-                label = { Text("Giro / Categoría") },
-                placeholder = { Text("Comidas / Postres") },
-                modifier = Modifier.weight(1f),
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = location,
-                onValueChange = { location = it },
-                label = { Text("Ubicación en campus") },
-                placeholder = { Text("Pabellón A / Cafetería") },
-                modifier = Modifier.weight(1f),
-                singleLine = true
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                value = openTime,
-                onValueChange = { openTime = it },
-                label = { Text("Apertura") },
-                placeholder = { Text("08:00 AM") },
-                modifier = Modifier.weight(1f),
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = closeTime,
-                onValueChange = { closeTime = it },
-                label = { Text("Cierre") },
-                placeholder = { Text("06:00 PM") },
-                modifier = Modifier.weight(1f),
-                singleLine = true
-            )
-        }
-
-        // Card explicativa de fotos (Cero campos URL)
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-            shape = RoundedCornerShape(10.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier.padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Icon(Icons.Default.PhotoCamera, contentDescription = null, tint = Color(0xFF003366), modifier = Modifier.size(22.dp))
-                Text(
-                    text = "💡 Para cambiar tu foto de portada o logotipo comercial, tócalos directamente arriba y selecciónalos desde tu celular.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        Button(
-            onClick = {
-                onSave(
-                    businessName,
-                    businessStatus,
-                    description,
-                    category,
-                    location,
-                    openTime,
-                    closeTime,
-                    bannerUrl,
-                    avatarUrl,
-                    acceptingOrders
-                )
-            },
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp, bottom = 24.dp),
-            enabled = !isSaving && !isUploadingBanner && !isUploadingAvatar
-        ) {
-            if (isSaving) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Guardando...")
+        },
+        confirmButton = {
+            if (!isEditMode) {
+                Button(
+                    onClick = { isEditMode = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366))
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Editar Mi Puesto")
+                }
             } else {
-                Icon(Icons.Default.Store, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Guardar Información de Mi Puesto", fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = {
+                        onSave(
+                            businessName,
+                            businessStatus,
+                            description,
+                            category,
+                            location,
+                            openTime,
+                            closeTime,
+                            bannerUrl,
+                            avatarUrl,
+                            acceptingOrders
+                        )
+                        isEditMode = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366)),
+                    enabled = !isSaving && !isUploadingBanner && !isUploadingAvatar
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Guardando...")
+                    } else {
+                        Text("Guardar Cambios")
+                    }
+                }
             }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    if (isEditMode) {
+                        businessName = activeProfile.businessName ?: activeProfile.fullName
+                        description = activeProfile.businessDescription.orEmpty()
+                        category = activeProfile.businessCategory.orEmpty()
+                        location = activeProfile.businessLocation ?: activeProfile.campus
+                        openTime = activeProfile.openTime ?: "08:00"
+                        closeTime = activeProfile.closeTime ?: "18:00"
+                        bannerUrl = activeProfile.bannerUrl.orEmpty()
+                        avatarUrl = activeProfile.avatarUrl.orEmpty()
+                        businessStatus = activeProfile.businessStatus.ifBlank { "ABIERTO" }
+                        acceptingOrders = activeProfile.acceptingOrders
+                        isEditMode = false
+                    } else {
+                        onDismiss()
+                    }
+                }
+            ) {
+                Text(if (isEditMode) "Cancelar" else "Cerrar")
+            }
+        }
+    )
+}
+
+@Composable
+private fun SellerProfileDetailRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Color(0xFF003366),
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column {
+            Text(text = label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(text = value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         }
     }
 }

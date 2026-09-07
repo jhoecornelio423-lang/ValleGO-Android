@@ -65,7 +65,7 @@ BEGIN
     END LOOP;
 
     -- Recalcular orden maestra
-    PERFORM public.recalculate_order_master(p_order_id);
+    PERFORM public.recalculate_master_order(p_order_id);
 
     RETURN jsonb_build_object(
         'success', true, 
@@ -114,7 +114,7 @@ BEGIN
         updated_at = now()
     WHERE id = p_sub_order_id;
 
-    PERFORM public.recalculate_order_master(v_sub.order_id);
+    PERFORM public.recalculate_master_order(v_sub.order_id);
 
     RETURN jsonb_build_object('success', true, 'message', 'Subpedido marcado como no entregado.');
 END;
@@ -157,7 +157,7 @@ BEGIN
             updated_at = now() 
         WHERE id = v_sub.id;
 
-        PERFORM public.recalculate_order_master(v_sub.order_id);
+        PERFORM public.recalculate_master_order(v_sub.order_id);
         v_count := v_count + 1;
     END LOOP;
 
@@ -165,7 +165,19 @@ BEGIN
 END;
 $$;
 
--- 7. Otorgar permisos de ejecución
+-- 7. Alias de compatibilidad para recalculate_order_master
+CREATE OR REPLACE FUNCTION public.recalculate_order_master(p_order_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    PERFORM public.recalculate_master_order(p_order_id);
+END;
+$$;
+
+-- 8. Otorgar permisos de ejecución
 GRANT EXECUTE ON FUNCTION public.cancel_order_by_buyer_atomic(UUID) TO authenticated, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.mark_suborder_no_show_atomic(UUID, BOOLEAN, TEXT) TO authenticated, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.expire_unanswered_suborders_atomic() TO authenticated, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.recalculate_order_master(UUID) TO authenticated, anon, service_role;

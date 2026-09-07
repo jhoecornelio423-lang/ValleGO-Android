@@ -52,6 +52,15 @@ data class SellerBusinessProfileUpdateDto(
 )
 
 @kotlinx.serialization.Serializable
+data class UserProfileUpdateDto(
+    @kotlinx.serialization.SerialName("full_name") val fullName: String? = null,
+    @kotlinx.serialization.SerialName("phone") val phone: String? = null,
+    @kotlinx.serialization.SerialName("student_code") val studentCode: String? = null,
+    @kotlinx.serialization.SerialName("campus") val campus: String? = null,
+    @kotlinx.serialization.SerialName("avatar_url") val avatarUrl: String? = null
+)
+
+@kotlinx.serialization.Serializable
 data class ProductStockOnlyDto(
     @kotlinx.serialization.SerialName("stock") val stock: Int
 )
@@ -296,6 +305,31 @@ class ProductRepositoryImpl(
             Result.success(profile.copy(id = targetId))
         } catch (e: Exception) {
             android.util.Log.e("ProductRepo", "Error al actualizar perfil de negocio: ${e.message}", e)
+            Result.failure(e)
+        }
+    }
+
+    override suspend fun updateUserProfile(profile: UserProfile): Result<UserProfile> = withContext(Dispatchers.IO) {
+        try {
+            val targetId = profile.id.ifBlank { auth.currentUserOrNull()?.id ?: "" }
+            if (targetId.isBlank()) return@withContext Result.failure(IllegalStateException("No se pudo identificar la cuenta del usuario."))
+
+            val dto = UserProfileUpdateDto(
+                fullName = profile.fullName.trim().takeIf { it.isNotBlank() },
+                phone = profile.phone.trim(),
+                studentCode = profile.studentCode?.trim()?.takeIf { it.isNotBlank() },
+                campus = profile.campus.trim().takeIf { it.isNotBlank() },
+                avatarUrl = profile.avatarUrl?.trim()?.takeIf { it.isNotBlank() }
+            )
+            postgrest.from("profiles").update(dto) {
+                filter {
+                    eq("id", targetId)
+                }
+            }
+            android.util.Log.d("ProductRepo", "Perfil de usuario actualizado: ${profile.fullName}")
+            Result.success(profile.copy(id = targetId))
+        } catch (e: Exception) {
+            android.util.Log.e("ProductRepo", "Error al actualizar perfil de usuario: ${e.message}", e)
             Result.failure(e)
         }
     }

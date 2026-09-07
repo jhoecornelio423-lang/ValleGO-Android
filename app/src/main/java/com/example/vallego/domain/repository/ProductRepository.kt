@@ -16,5 +16,6 @@ interface ProductRepository {
     suspend fun getSellerProfiles(): Result<List<UserProfile>>
     suspend fun updateSellerAcceptingOrders(sellerId: String, accepting: Boolean): Result<Unit>
     suspend fun updateBusinessProfile(profile: UserProfile): Result<UserProfile>
+    suspend fun updateUserProfile(profile: UserProfile): Result<UserProfile>
     suspend fun uploadImage(bucket: String, path: String, bytes: ByteArray, mimeType: String = "image/jpeg"): Result<String>
 }

@@ -300,6 +300,78 @@ fun ValleGoBusinessAvatar(
 }
 
 @Composable
+fun ValleGoUserAvatar(
+    avatarUrl: String?,
+    name: String?,
+    modifier: Modifier = Modifier,
+    size: Dp = 40.dp,
+    shape: Shape = CircleShape
+) {
+    val initials = remember(name) {
+        val trimmed = name?.trim().orEmpty()
+        if (trimmed.isNotBlank()) {
+            val parts = trimmed.split(" ").filter { it.isNotBlank() }
+            if (parts.size >= 2) {
+                "${parts[0].first()}${parts[1].first()}".uppercase()
+            } else {
+                trimmed.take(2).uppercase()
+            }
+        } else {
+            "U"
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .size(size)
+            .clip(shape)
+            .background(
+                Brush.linearGradient(
+                    listOf(Color(0xFF003366), Color(0xFF1E88E5))
+                )
+            )
+            .border(1.5.dp, Color.White, shape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!avatarUrl.isNullOrBlank()) {
+            var isError by remember(avatarUrl) { mutableStateOf(false) }
+            if (!isError) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(avatarUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = name ?: "Foto de perfil",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                    onError = { isError = true }
+                )
+            } else {
+                Text(
+                    text = initials,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = (size.value * 0.36f).sp
+                )
+            }
+        } else {
+            Text(
+                text = initials,
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = (size.value * 0.36f).sp
+            )
+        }
+    }
+}
+
+fun isSubOrderExpired(createdAtIso: String?): Boolean {
+    if (createdAtIso.isNullOrBlank()) return false
+    val target = parseIsoEpochMillis(createdAtIso) + (15 * 60 * 1000L)
+    return System.currentTimeMillis() >= target
+}
+
+@Composable
 fun SubOrderCountdownTimerBadge(
     createdAtIso: String?,
     status: SubOrderStatus,
@@ -323,6 +395,13 @@ fun SubOrderCountdownTimerBadge(
     var hasExpiredReported by remember(createdAtIso) { mutableStateOf(false) }
 
     LaunchedEffect(targetEpochMillis) {
+        val initialRem = maxOf(0L, targetEpochMillis - System.currentTimeMillis())
+        if (initialRem == 0L && !hasExpiredReported) {
+            hasExpiredReported = true
+            onExpired?.invoke()
+            return@LaunchedEffect
+        }
+
         while (true) {
             val now = System.currentTimeMillis()
             val rem = maxOf(0L, targetEpochMillis - now)

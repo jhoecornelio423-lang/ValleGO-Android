@@ -1,5 +1,8 @@
 package com.example.vallego.features.buyer
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -12,8 +15,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.AddShoppingCart
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
@@ -25,8 +34,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.vallego.domain.model.Category
@@ -40,6 +51,8 @@ import com.example.vallego.ui.components.StoreStatusBadge
 import com.example.vallego.ui.components.ValleGoBusinessAvatar
 import com.example.vallego.ui.components.ValleGoBusinessBanner
 import com.example.vallego.ui.components.ValleGoProductImage
+import com.example.vallego.ui.components.ValleGoUserAvatar
+import com.example.vallego.ui.components.compressImageUri
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -68,6 +81,8 @@ fun BuyerHomeScreen(
     cartRepository: CartRepository = koinInject(),
     productRepository: ProductRepository = koinInject()
 ) {
+    var currentProfile by remember { mutableStateOf(profile) }
+    var showProfileDialog by remember { mutableStateOf(false) }
     var showCart by remember { mutableStateOf(false) }
     var showTracking by remember { mutableStateOf(false) }
     val cartCalculation by cartRepository.cartCalculation.collectAsState()
@@ -103,8 +118,15 @@ fun BuyerHomeScreen(
                     if (seller != null && !seller.acceptingOrders && seller.businessStatus == "CERRADO") {
                         return@mapNotNull null
                     }
-                    val storeTitle = seller?.displayStoreName ?: "Emprendimiento Valle-Go"
-                    val loc = seller?.businessLocation?.trim()?.takeIf { it.isNotBlank() } ?: "Campus ${profile.campus}"
+                    val bName = seller?.businessName?.trim().orEmpty()
+                    val fName = seller?.fullName?.trim().orEmpty()
+                    val storeTitle = when {
+                        bName.isNotBlank() && fName.isNotBlank() && !bName.equals(fName, ignoreCase = true) -> "$bName - $fName"
+                        bName.isNotBlank() -> bName
+                        fName.isNotBlank() -> fName
+                        else -> "Emprendimiento Valle-Go"
+                    }
+                    val loc = seller?.businessLocation?.trim()?.takeIf { it.isNotBlank() } ?: "Campus ${currentProfile.campus}"
                     StoreCatalogGroup(
                         sellerId = sellerId,
                         sellerName = storeTitle,
@@ -136,7 +158,7 @@ fun BuyerHomeScreen(
 
     if (showTracking) {
         OrderTrackingScreen(
-            buyerProfile = profile,
+            buyerProfile = currentProfile,
             onNavigateBack = { showTracking = false },
             onNavigateToCart = {
                 showTracking = false
@@ -149,7 +171,7 @@ fun BuyerHomeScreen(
 
     if (showCart) {
         CartScreen(
-            buyerProfile = profile,
+            buyerProfile = currentProfile,
             onNavigateBack = { showCart = false },
             onNavigateToTracking = {
                 showCart = false
@@ -164,10 +186,15 @@ fun BuyerHomeScreen(
     if (selectedProductForDetail != null) {
         val (prod, store) = selectedProductForDetail!!
         val catName = categoriesList.find { it.id == prod.categoryId }?.name
+        val isStoreAvail = store.acceptingOrders &&
+                !store.businessStatus.equals("PAUSADO", ignoreCase = true) &&
+                !store.businessStatus.equals("CERRADO", ignoreCase = true)
         ProductDetailBottomSheet(
             product = prod,
             storeName = store.sellerName,
             categoryName = catName,
+            isStoreAvailable = isStoreAvail,
+            storeStatus = store.businessStatus,
             onDismiss = { selectedProductForDetail = null },
             onAddToCart = { product, quantity, instructions ->
                 cartRepository.setStoreName(store.sellerId, store.sellerName)
@@ -211,25 +238,42 @@ fun BuyerHomeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = "Valle-Go",
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF003366)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { showProfileDialog = true }
+                            .padding(vertical = 4.dp, horizontal = 2.dp)
+                    ) {
+                        ValleGoUserAvatar(
+                            avatarUrl = currentProfile.avatarUrl,
+                            name = currentProfile.fullName,
+                            size = 38.dp
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.LocationOn,
-                                contentDescription = null,
-                                tint = Color(0xFFC8102E),
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
                             Text(
-                                text = "Campus ${profile.campus}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = currentProfile.fullName,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color(0xFF003366),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = null,
+                                    tint = Color(0xFFC8102E),
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = "Campus ${currentProfile.campus}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 },
@@ -601,20 +645,36 @@ fun BuyerHomeScreen(
                                             }
                                         }
 
+                                        val isStoreAvail = group.acceptingOrders &&
+                                                !group.businessStatus.equals("PAUSADO", ignoreCase = true) &&
+                                                !group.businessStatus.equals("CERRADO", ignoreCase = true)
+                                        val canOrder = isStoreAvail && product.stock > 0
+                                        val btnLabel = when {
+                                            !isStoreAvail && group.businessStatus.equals("PAUSADO", ignoreCase = true) -> "En pausa"
+                                            !isStoreAvail -> "Cerrado"
+                                            product.stock <= 0 -> "Agotado"
+                                            else -> "Pedir"
+                                        }
+
                                         FilledTonalButton(
                                             onClick = {
                                                 selectedProductForDetail = Pair(product, group)
                                             },
+                                            enabled = canOrder,
+                                            colors = ButtonDefaults.filledTonalButtonColors(
+                                                disabledContainerColor = Color(0xFFEEEEEE),
+                                                disabledContentColor = Color(0xFF9E9E9E)
+                                            ),
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                             shape = RoundedCornerShape(10.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.AddShoppingCart,
+                                                imageVector = if (canOrder) Icons.Default.AddShoppingCart else Icons.Default.Block,
                                                 contentDescription = null,
                                                 modifier = Modifier.size(16.dp)
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Pedir", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            Text(btnLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
@@ -623,6 +683,289 @@ fun BuyerHomeScreen(
                     }
                 }
             }
+        }
+    }
+
+    if (showProfileDialog) {
+        BuyerProfileDialog(
+            profile = currentProfile,
+            onDismiss = { showProfileDialog = false },
+            onSaveProfile = { updated ->
+                coroutineScope.launch {
+                    val res = productRepository.updateUserProfile(updated)
+                    if (res.isSuccess) {
+                        currentProfile = res.getOrNull() ?: updated
+                    }
+                }
+            },
+            onUploadAvatar = { bytes, onUploaded ->
+                coroutineScope.launch {
+                    val path = "avatars/${currentProfile.id}_${System.currentTimeMillis()}.jpg"
+                    val res = productRepository.uploadImage("business-assets", path, bytes)
+                    res.onSuccess { url ->
+                        onUploaded(url)
+                    }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun BuyerProfileDialog(
+    profile: UserProfile,
+    onDismiss: () -> Unit,
+    onSaveProfile: (UserProfile) -> Unit,
+    onUploadAvatar: (ByteArray, (String) -> Unit) -> Unit
+) {
+    var isEditMode by remember { mutableStateOf(false) }
+    var fullName by remember(profile) { mutableStateOf(profile.fullName) }
+    var phone by remember(profile) { mutableStateOf(profile.phone) }
+    var studentCode by remember(profile) { mutableStateOf(profile.studentCode.orEmpty()) }
+    var campus by remember(profile) { mutableStateOf(profile.campus) }
+    var avatarUrl by remember(profile) { mutableStateOf(profile.avatarUrl) }
+    var isUploading by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val bytes = compressImageUri(context, uri)
+            if (bytes != null) {
+                isUploading = true
+                onUploadAvatar(bytes) { newUrl ->
+                    isUploading = false
+                    avatarUrl = newUrl
+                }
+            }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            if (isEditMode) {
+                Button(
+                    onClick = {
+                        val updated = profile.copy(
+                            fullName = fullName.trim().ifBlank { profile.fullName },
+                            phone = phone.trim(),
+                            studentCode = studentCode.trim().takeIf { it.isNotBlank() },
+                            campus = campus.trim().ifBlank { profile.campus },
+                            avatarUrl = avatarUrl
+                        )
+                        onSaveProfile(updated)
+                        isEditMode = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366))
+                ) {
+                    Text("Guardar Cambios")
+                }
+            } else {
+                Button(
+                    onClick = { isEditMode = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366))
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Editar Perfil")
+                }
+            }
+        },
+        dismissButton = {
+            OutlinedButton(
+                onClick = {
+                    if (isEditMode) {
+                        fullName = profile.fullName
+                        phone = profile.phone
+                        studentCode = profile.studentCode.orEmpty()
+                        campus = profile.campus
+                        avatarUrl = profile.avatarUrl
+                        isEditMode = false
+                    } else {
+                        onDismiss()
+                    }
+                }
+            ) {
+                Text(if (isEditMode) "Cancelar" else "Cerrar")
+            }
+        },
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (isEditMode) "Editar Mi Perfil" else "Mi Perfil de Estudiante",
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF003366),
+                    style = MaterialTheme.typography.titleLarge
+                )
+                if (isEditMode) {
+                    Surface(
+                        color = Color(0xFFE3F2FD),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "Modo Edición",
+                            color = Color(0xFF0284C7),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Avatar grande
+                Box(
+                    contentAlignment = Alignment.BottomEnd,
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    ValleGoUserAvatar(
+                        avatarUrl = avatarUrl,
+                        name = fullName,
+                        size = 88.dp
+                    )
+                    if (isEditMode) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF003366),
+                            shadowElevation = 4.dp,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .clickable { imagePickerLauncher.launch("image/*") }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                if (isUploading) {
+                                    CircularProgressIndicator(
+                                        color = Color.White,
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.CameraAlt,
+                                        contentDescription = "Cambiar foto",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isEditMode) {
+                    Text(
+                        text = "Toca el ícono de cámara para cambiar tu foto",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (!isEditMode) {
+                    // MODO LECTURA POR DEFECTO
+                    Text(
+                        text = fullName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF003366)
+                    )
+                    Surface(
+                        color = Color(0xFFE8F5E9),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(
+                            text = "🎓 Estudiante / Comprador",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF2E7D32),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    HorizontalDivider()
+
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        ProfileDetailRow(icon = Icons.Default.Badge, label = "Código UCV", value = studentCode.ifBlank { "No registrado" })
+                        ProfileDetailRow(icon = Icons.Default.Phone, label = "Teléfono", value = phone.ifBlank { "No registrado" })
+                        ProfileDetailRow(icon = Icons.Default.LocationOn, label = "Campus", value = "Campus $campus")
+                    }
+                } else {
+                    // MODO EDICIÓN
+                    OutlinedTextField(
+                        value = fullName,
+                        onValueChange = { fullName = it },
+                        label = { Text("Nombre Completo") },
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = studentCode,
+                        onValueChange = { studentCode = it },
+                        label = { Text("Código de Estudiante") },
+                        leadingIcon = { Icon(Icons.Default.Badge, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = phone,
+                        onValueChange = { phone = it },
+                        label = { Text("Teléfono / WhatsApp") },
+                        leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = campus,
+                        onValueChange = { campus = it },
+                        label = { Text("Campus") },
+                        leadingIcon = { Icon(Icons.Default.LocationOn, contentDescription = null) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun ProfileDetailRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = Color(0xFF003366),
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column {
+            Text(text = label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(text = value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         }
     }
 }

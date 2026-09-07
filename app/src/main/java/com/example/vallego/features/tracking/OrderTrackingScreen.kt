@@ -36,6 +36,7 @@ import com.example.vallego.domain.model.SubOrder
 import com.example.vallego.domain.model.SubOrderStatus
 import com.example.vallego.domain.model.UserProfile
 import com.example.vallego.ui.components.SubOrderCountdownTimerBadge
+import com.example.vallego.ui.components.isSubOrderExpired
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -380,18 +381,56 @@ fun BuyerOrderCard(
                 )
             }
 
-            // Botón Cancelar Pedido (si sigue PENDIENTE y aún no está aceptado por el vendedor)
+            val anyPendingExpired = remember(order.subOrders) {
+                val pendings = order.subOrders.filter { it.status == SubOrderStatus.PENDIENTE }
+                pendings.isNotEmpty() && pendings.any { isSubOrderExpired(it.createdAt) }
+            }
+
+            LaunchedEffect(anyPendingExpired) {
+                if (anyPendingExpired) {
+                    onExpiredSubOrder?.invoke()
+                }
+            }
+
+            // Botón Cancelar Pedido (si sigue PENDIENTE y aún no está expirado)
             if (order.status == OrderStatus.PENDIENTE && !isHistoryTab) {
-                OutlinedButton(
-                    onClick = { onCancelOrder?.invoke() },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFC8102E)),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFC8102E).copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Cancelar Pedido", fontWeight = FontWeight.Bold)
+                if (anyPendingExpired) {
+                    Surface(
+                        color = Color(0xFFFFEBEE),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = Color(0xFFC8102E),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "⏰ Cancelado automáticamente por tiempo de espera agotado (15 min).",
+                                color = Color(0xFFC8102E),
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { onCancelOrder?.invoke() },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFC8102E)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFC8102E).copy(alpha = 0.5f)),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Cancelar Pedido", fontWeight = FontWeight.Bold)
+                    }
                 }
             }
 

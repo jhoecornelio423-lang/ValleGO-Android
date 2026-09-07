@@ -8,9 +8,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +31,8 @@ fun ProductDetailBottomSheet(
     product: Product,
     storeName: String,
     categoryName: String?,
+    isStoreAvailable: Boolean = true,
+    storeStatus: String = "ABIERTO",
     onDismiss: () -> Unit,
     onAddToCart: (product: Product, quantity: Int, specialInstructions: String?) -> Unit
 ) {
@@ -161,6 +165,37 @@ fun ProductDetailBottomSheet(
 
                 HorizontalDivider()
 
+                // Advertencia si el puesto está cerrado o en pausa
+                if (!isStoreAvailable) {
+                    Surface(
+                        color = Color(0xFFFFF3E0),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.WarningAmber,
+                                contentDescription = null,
+                                tint = Color(0xFFE65100),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = if (storeStatus.equals("PAUSADO", ignoreCase = true))
+                                    "⚠️ Este puesto se encuentra en pausa temporal y no está aceptando pedidos por el momento."
+                                else
+                                    "🔒 Este puesto se encuentra cerrado actualmente.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFE65100),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
                 // Notas e instrucciones especiales para el vendedor
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
@@ -179,7 +214,8 @@ fun ProductDetailBottomSheet(
                         onValueChange = { specialInstructions = it },
                         placeholder = { Text("Ej. Sin mayonesa, por favor / Salsa tártara aparte") },
                         modifier = Modifier.fillMaxWidth(),
-                        maxLines = 2
+                        maxLines = 2,
+                        enabled = isStoreAvailable
                     )
                 }
 
@@ -202,7 +238,7 @@ fun ProductDetailBottomSheet(
                     ) {
                         FilledTonalIconButton(
                             onClick = { if (quantity > 1) quantity-- },
-                            enabled = quantity > 1,
+                            enabled = isStoreAvailable && quantity > 1,
                             shape = CircleShape
                         ) {
                             Icon(Icons.Default.Remove, contentDescription = "Restar")
@@ -217,7 +253,7 @@ fun ProductDetailBottomSheet(
 
                         FilledTonalIconButton(
                             onClick = { if (quantity < maxStock) quantity++ },
-                            enabled = quantity < maxStock,
+                            enabled = isStoreAvailable && quantity < maxStock,
                             shape = CircleShape
                         ) {
                             Icon(Icons.Default.Add, contentDescription = "Sumar")
@@ -228,20 +264,33 @@ fun ProductDetailBottomSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Botón Sticky de Agregar al Carrito
+            // Botón Sticky de Agregar al Carrito (Deshabilitado si está en Pausa o Cerrado)
             val subtotal = product.price * quantity
+            val canAdd = isStoreAvailable && product.stock > 0
+            val buttonLabel = when {
+                !isStoreAvailable && storeStatus.equals("PAUSADO", ignoreCase = true) -> "Puesto en Pausa"
+                !isStoreAvailable -> "Puesto Cerrado"
+                product.stock <= 0 -> "Producto Agotado"
+                else -> "Agregar al carrito"
+            }
+
             Button(
                 onClick = {
                     val instructions = specialInstructions.trim().takeIf { it.isNotBlank() }
                     onAddToCart(product, quantity, instructions)
                     onDismiss()
                 },
+                enabled = canAdd,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
                     .height(52.dp),
                 shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF003366))
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF003366),
+                    disabledContainerColor = Color(0xFFEEEEEE),
+                    disabledContentColor = Color(0xFF9E9E9E)
+                )
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -250,22 +299,24 @@ fun ProductDetailBottomSheet(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Default.ShoppingBag,
+                            imageVector = if (canAdd) Icons.Default.ShoppingBag else Icons.Default.Block,
                             contentDescription = null,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Agregar al carrito",
+                            text = buttonLabel,
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp
                         )
                     }
-                    Text(
-                        text = "S/ %.2f".format(subtotal),
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 16.sp
-                    )
+                    if (canAdd) {
+                        Text(
+                            text = "S/ %.2f".format(subtotal),
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 16.sp
+                        )
+                    }
                 }
             }
         }
