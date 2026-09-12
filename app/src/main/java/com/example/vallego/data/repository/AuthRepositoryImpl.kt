@@ -69,16 +69,24 @@ class AuthRepositoryImpl(
         }
     }
 
+    companion object {
+        private val EMAIL_REGEX = Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$")
+    }
+
+    override fun isValidEmail(email: String): Boolean {
+        val trimmed = email.trim()
+        return trimmed.isNotEmpty() && EMAIL_REGEX.matches(trimmed)
+    }
+
     override fun isValidInstitutionalEmail(email: String): Boolean {
-        val trimmed = email.trim().lowercase()
-        return trimmed.endsWith("@ucv.edu.pe") || trimmed.endsWith("@ucvvirtual.edu.pe")
+        return isValidEmail(email)
     }
 
     override suspend fun signIn(email: String, password: String): Result<UserProfile> {
         val trimmedEmail = email.trim().lowercase()
-        if (!isValidInstitutionalEmail(trimmedEmail)) {
+        if (!isValidEmail(trimmedEmail)) {
             return Result.failure(
-                IllegalArgumentException("Debes usar tu correo institucional UCV (@ucvvirtual.edu.pe o @ucv.edu.pe)")
+                IllegalArgumentException("Ingresa un correo electrónico válido")
             )
         }
 
@@ -93,7 +101,7 @@ class AuthRepositoryImpl(
                 fetchProfile(user.id)
             } catch (_: Exception) {
                 val meta = user.userMetadata
-                val metaName = meta?.get("full_name")?.jsonPrimitive?.contentOrNull ?: "Estudiante UCV"
+                val metaName = meta?.get("full_name")?.jsonPrimitive?.contentOrNull ?: "Usuario Valle-Go"
                 val metaRoleStr = meta?.get("role")?.jsonPrimitive?.contentOrNull ?: "comprador"
                 val role = when (metaRoleStr.lowercase()) {
                     "admin" -> UserRole.ADMIN
@@ -122,9 +130,9 @@ class AuthRepositoryImpl(
         role: UserRole
     ): Result<UserProfile> {
         val trimmedEmail = email.trim().lowercase()
-        if (!isValidInstitutionalEmail(trimmedEmail)) {
+        if (!isValidEmail(trimmedEmail)) {
             return Result.failure(
-                IllegalArgumentException("Debes usar tu correo institucional UCV (@ucvvirtual.edu.pe o @ucv.edu.pe)")
+                IllegalArgumentException("Ingresa un correo electrónico válido")
             )
         }
 

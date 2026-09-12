@@ -164,26 +164,26 @@ fun AuthScreen(
                     }
                 }
 
-                // Campo Correo UCV
+                // Campo Correo
                 OutlinedTextField(
                     value = uiState.email,
                     onValueChange = onEmailChange,
-                    label = { Text("Correo Institucional UCV") },
-                    placeholder = { Text("usuario@ucvvirtual.edu.pe") },
+                    label = { Text("Correo Electrónico") },
+                    placeholder = { Text("ejemplo@correo.com") },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Email,
                         imeAction = ImeAction.Next
                     ),
                     singleLine = true,
-                    isError = uiState.email.isNotBlank() && !uiState.isInstitutionalEmailValid,
+                    isError = uiState.email.isNotBlank() && !uiState.isEmailValid,
                     supportingText = {
                         Text(
-                            text = if (uiState.isInstitutionalEmailValid) {
-                                "✓ Correo institucional UCV válido"
+                            text = if (uiState.isEmailValid) {
+                                "✓ Correo electrónico válido"
                             } else {
-                                "Usa tu correo @ucvvirtual.edu.pe o @ucv.edu.pe"
+                                "Ingresa un correo electrónico válido"
                             },
-                            color = if (uiState.isInstitutionalEmailValid) {
+                            color = if (uiState.isEmailValid) {
                                 Color(0xFF2E7D32)
                             } else if (uiState.email.isNotBlank()) {
                                 MaterialTheme.colorScheme.error
@@ -193,7 +193,7 @@ fun AuthScreen(
                         )
                     },
                     trailingIcon = {
-                        if (uiState.isInstitutionalEmailValid) {
+                        if (uiState.isEmailValid) {
                             Icon(
                                 imageVector = Icons.Default.CheckCircle,
                                 contentDescription = "Válido",
@@ -276,13 +276,13 @@ fun AuthScreen(
                             FilterChip(
                                 selected = uiState.selectedRole == UserRole.COMPRADOR,
                                 onClick = { onRoleChange(UserRole.COMPRADOR) },
-                                label = { Text("Estudiante (Comprar)") },
+                                label = { Text("Comprar (Estudiante)") },
                                 modifier = Modifier.weight(1f)
                             )
                             FilterChip(
                                 selected = uiState.selectedRole == UserRole.EMPRENDEDOR,
                                 onClick = { onRoleChange(UserRole.EMPRENDEDOR) },
-                                label = { Text("Emprendedor (Vender)") },
+                                label = { Text("Vender (Negocio / Emprendedor)") },
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -312,7 +312,7 @@ fun AuthScreen(
                         )
                     } else {
                         Text(
-                            text = if (uiState.isLoginMode) "Ingresar al Campus" else "Crear Cuenta Valle-Go",
+                            text = if (uiState.isLoginMode) "Iniciar Sesión" else "Crear Cuenta Valle-Go",
                             fontWeight = FontWeight.Bold,
                             fontSize = 16.sp
                         )

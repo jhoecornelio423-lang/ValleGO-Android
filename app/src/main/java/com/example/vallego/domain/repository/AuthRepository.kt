@@ -1,4 +1,4 @@
-﻿package com.example.vallego.domain.repository
+package com.example.vallego.domain.repository
 
 import com.example.vallego.domain.model.UserProfile
 import com.example.vallego.domain.model.UserRole
@@ -12,5 +12,6 @@ interface AuthRepository {
     suspend fun signUp(email: String, password: String, fullName: String, phone: String, role: UserRole = UserRole.COMPRADOR): Result<UserProfile>
     suspend fun signOut(): Result<Unit>
     suspend fun refreshProfile(): Result<UserProfile?>
-    fun isValidInstitutionalEmail(email: String): Boolean
+    fun isValidEmail(email: String): Boolean
+    fun isValidInstitutionalEmail(email: String): Boolean = isValidEmail(email)
 }
